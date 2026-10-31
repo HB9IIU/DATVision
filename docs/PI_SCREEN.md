@@ -3,6 +3,10 @@
 This mode runs all three stages on the Pi: RTL-SDR capture, DVB decoding and
 video/audio display. The PC is only used for remote development and setup.
 
+For the newer fullscreen interface with a clickable spectrum, use the Pi's
+**RTL DATV Player** shortcut and see `PI_FULLSCREEN_PLAYER.md`. The standalone
+beacon shortcut below remains available as a simpler alternative.
+
 Double-click **QO-100 Beacon** on the Pi desktop. A movable video window opens
 on the connected Pi monitor. Press **F** for fullscreen, **M** to mute, or **Q**
 to close. Closing the player ends the capture and decoding pipeline.

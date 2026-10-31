@@ -8,3 +8,6 @@ player-settings.json
 ui/**/bin/
 ui/**/obj/
 milestones/
+pi-player-settings.json
+__pycache__/
+*.pyc

@@ -6,6 +6,8 @@ That window explicitly says `Pi pidatvmon` in its title and heading. The Pi owns
 the RTL-SDR and decoder; Windows displays the transport stream received over SSH.
 For video on the Pi's own monitor instead, see `PI_SCREEN.md` and use the
 **QO-100 Beacon** shortcut on its desktop.
+The Pi also has a native fullscreen **RTL DATV Player** with the same compact
+video/status/spectrum layout; see `PI_FULLSCREEN_PLAYER.md`.
 Click a signal in the spectrum to change station; its frequency and symbol rate
 are estimated automatically. The highlight shows the selected signal.
 

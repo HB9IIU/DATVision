@@ -31,6 +31,9 @@ validation notes for results and remaining hardware tests.
 For the clickable-spectrum Windows interface, see [the player guide](docs/PLAYER.md).
 Build it with `scripts/windows/build-player.ps1`, then start `RTL DATV Player.cmd`.
 
+On the Pi itself, **RTL DATV Player** opens the native fullscreen touchscreen
+interface. See [the Pi fullscreen player guide](docs/PI_FULLSCREEN_PLAYER.md).
+
 ## Later: remote Raspberry Pi
 
 Copy the source to the Pi and build natively there:
