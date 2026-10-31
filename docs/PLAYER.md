@@ -4,6 +4,8 @@ Double-click `RTL DATV Player.cmd`. The player opens on the QO-100 beacon.
 For reception from the configured remote Pi, use `Pi DATV Player.cmd` instead.
 That window explicitly says `Pi pidatvmon` in its title and heading. The Pi owns
 the RTL-SDR and decoder; Windows displays the transport stream received over SSH.
+For video on the Pi's own monitor instead, see `PI_SCREEN.md` and use the
+**QO-100 Beacon** shortcut on its desktop.
 Click a signal in the spectrum to change station; its frequency and symbol rate
 are estimated automatically. The highlight shows the selected signal.
 
