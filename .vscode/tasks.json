@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "DATV: build receiver",
+      "type": "shell",
+      "command": "bash",
+      "args": ["scripts/linux/build.sh"],
+      "windows": {
+        "command": "powershell.exe",
+        "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/windows/build.ps1"]
+      },
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "DATV: synthetic reception test",
+      "type": "shell",
+      "command": "bash",
+      "args": ["scripts/selftest.sh"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": { "DATVRX_BIN": "build/linux" }
+      },
+      "problemMatcher": []
+    }
+  ]
+}
