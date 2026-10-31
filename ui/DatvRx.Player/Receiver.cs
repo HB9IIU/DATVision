@@ -4,9 +4,9 @@ using System.Threading.Channels;
 
 namespace DatvRx.Player;
 
-// UI requests use RF MHz and kS/s; only this local backend knows about USB,
-// I/Q, LNB conversion and process ownership. A future Pi backend can implement
-// the same interface without changing the spectrum or manual controls.
+// UI requests use RF MHz and kS/s. This backend either owns a local USB/decode
+// pipeline or receives TS and diagnostics from the Pi over SSH. The spectrum
+// and compact player controls are shared by both modes.
 public record TuneRequest(double RfMhz, int SymbolRateKs, double LnbMhz = 9750);
 
 public interface IReceiverBackend : IAsyncDisposable
@@ -22,15 +22,17 @@ public sealed class LocalReceiver : IReceiverBackend
 {
     private readonly string _root;
     private readonly string _msysBin;
+    private readonly string _remoteHost;
     private readonly SemaphoreSlim _gate = new(1);
     private Session _session;
     public event Action<string> Status;
     public event Action<string> VideoInfo;
     public Process PlayerProcess => _session?.Player;
 
-    public LocalReceiver(string root)
+    public LocalReceiver(string root, string remoteHost = null)
     {
         _root = root;
+        _remoteHost = remoteHost;
         _msysBin = Path.Combine(Environment.GetEnvironmentVariable("DATVRX_MSYS_ROOT") ?? @"C:\msys64", "ucrt64/bin");
     }
 
@@ -68,7 +70,16 @@ public sealed class LocalReceiver : IReceiverBackend
                      "-window_title", "RTL DATV Video", "-x", "800", "-y", "450",
                      "-volume", Math.Clamp(volume, 0, 100).ToString(), "-probesize", "1000000",
                      "-analyzeduration", "1000000", "-f", "mpegts", "-i", "pipe:0"], input: true);
-                session.Decoder = Start(Path.Combine(_root, "build/windows/datvrx.exe"),
+                if (_remoteHost != null)
+                {
+                    string remoteCommand = "bash ~/projects/pi-datv-rx/scripts/linux/remote-receive.sh "
+                        + frequency.ToString(CultureInfo.InvariantCulture) + " " + sampleRate + " " + request.SymbolRateKs;
+                    session.Decoder = Start(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32/OpenSSH/ssh.exe"),
+                        ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", _remoteHost, remoteCommand], output: true);
+                }
+                else
+                {
+                    session.Decoder = Start(Path.Combine(_root, "build/windows/datvrx.exe"),
                     ["-", "--rate", (sampleRate / 1e6).ToString(CultureInfo.InvariantCulture),
                      "--format", "cu8", "--rs", (request.SymbolRateKs / 1000.0).ToString(CultureInfo.InvariantCulture),
                      "--std", "0", "--roll", "0.25", "--no-realtime"], input: true, output: true);
@@ -79,12 +90,13 @@ public sealed class LocalReceiver : IReceiverBackend
                     if (line.Contains("error", StringComparison.OrdinalIgnoreCase) || line.Contains("failed", StringComparison.OrdinalIgnoreCase))
                         Report("Radio: " + line);
                 }));
+                    session.Tasks.Add(RelayIq(session));
+                }
                 session.Tasks.Add(ReadLog(session, session.Decoder, "receiver", Report));
                 session.Tasks.Add(ReadLog(session, session.Player, "video", line =>
                 {
                     if (_session == session && (line.Contains("Video:") || line.Contains("service_name"))) VideoInfo?.Invoke(line.Trim());
                 }));
-                session.Tasks.Add(RelayIq(session));
                 session.Tasks.Add(RelayTs(session));
                 session.Tasks.Add(Monitor(session));
                 Report($"Tuning {request.RfMhz:0.000} MHz · {request.SymbolRateKs} kS/s · USB {sampleRate / 1e6:0.00} MSps");
@@ -176,8 +188,8 @@ public sealed class LocalReceiver : IReceiverBackend
     {
         try
         {
-            await Task.WhenAny(session.Source.WaitForExitAsync(session.Stop.Token),
-                session.Decoder.WaitForExitAsync(session.Stop.Token), session.Player.WaitForExitAsync(session.Stop.Token));
+            await Task.WhenAny(new[] { session.Source, session.Decoder, session.Player }
+                .Where(process => process != null).Select(process => process.WaitForExitAsync(session.Stop.Token)));
             if (!session.Stop.IsCancellationRequested && _session == session)
             {
                 Status?.Invoke("Reception stopped. Check USB connection or click Tune to retry.");

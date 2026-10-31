@@ -34,11 +34,11 @@ public sealed class PlayerWindow : Form
     private TuneRequest _current;
     private readonly Control _legend = new FrequencyScale { Dock = DockStyle.Fill, ForeColor = Muted };
 
-    public PlayerWindow(string root)
+    public PlayerWindow(string root, string remoteHost = null)
     {
         _settingsPath = Path.Combine(root, "player-settings.json");
-        _receiver = new LocalReceiver(root);
-        Text = "HB9IIU · RTL DATV Player";
+        _receiver = new LocalReceiver(root, remoteHost);
+        Text = remoteHost == null ? "HB9IIU · RTL DATV Player" : $"HB9IIU · RTL DATV Player — Pi {remoteHost}";
         Font = new Font("Segoe UI", 9);
         BackColor = Background; ForeColor = Foreground;
         ClientSize = new Size(820, 590); MinimumSize = new Size(600, 430);
@@ -51,7 +51,7 @@ public sealed class PlayerWindow : Form
         var heading = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
         heading.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         heading.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        heading.Controls.Add(new Label { Text = "HB9IIU  /  RTL DATV", Font = new Font("Segoe UI Semibold", 12), AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
+        heading.Controls.Add(new Label { Text = remoteHost == null ? "HB9IIU  /  RTL DATV" : $"HB9IIU  /  RTL DATV · PI {remoteHost}", Font = new Font("Segoe UI Semibold", 12), AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
         heading.Controls.Add(_state, 1, 0);
         layout.Controls.Add(heading, 0, 0);
         _video.Controls.Add(_placeholder);

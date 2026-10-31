@@ -1,6 +1,9 @@
 # RTL DATV Player
 
 Double-click `RTL DATV Player.cmd`. The player opens on the QO-100 beacon.
+For reception from the configured remote Pi, use `Pi DATV Player.cmd` instead.
+That window explicitly says `Pi pidatvmon` in its title and heading. The Pi owns
+the RTL-SDR and decoder; Windows displays the transport stream received over SSH.
 Click a signal in the spectrum to change station; its frequency and symbol rate
 are estimated automatically. The highlight shows the selected signal.
 
@@ -41,9 +44,10 @@ Use `-MsysRoot` with `scripts/windows/start-player.ps1` for a nonstandard MSYS2 
 ## Source and platform boundaries
 
 `ui/DatvRx.Player/` is the Windows C# / WinForms interface. `Receiver.cs` owns the
-local capture, decoder and player processes behind `IReceiverBackend`; the Pi
-backend is not implemented yet. The C++/Rust receiver remains independently
-buildable on Linux/Pi.
+local capture, decoder and player processes behind `IReceiverBackend`. The same
+backend can run the capture/decoder on the Pi over SSH while keeping ffplay on
+Windows. See `PI_LIVE.md` for the remote setup. The C++/Rust receiver remains
+independently buildable on Linux/Pi.
 
 `Spectrum.cs` is adapted from HB9IIU Experimental H.266 Player (GPL v3), with
 click bounds and WebSocket message validation changes. The original project is

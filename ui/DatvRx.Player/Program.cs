@@ -18,7 +18,7 @@ internal static class Program
             MessageBox.Show("Build the receiver first using scripts/windows/build.ps1.", "RTL DATV");
             return;
         }
-        Application.Run(new PlayerWindow(root));
+        Application.Run(new PlayerWindow(root, args.Contains("--pi") ? "pidatvmon" : null));
     }
 
     private static string FindRoot()
