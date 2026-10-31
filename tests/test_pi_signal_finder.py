@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ui/pi_player"))
 from signal_finder import START_MHZ, END_MHZ, find_signal, detect_signals, nearest_signal
 from ts_info import TsInfo
 import calibration
+from sweeper import to_view_scale, NOISE_LEVEL, PER_DB, MIN_RISE
 
 
 def carrier(center, rate):
@@ -78,6 +79,52 @@ class CalibrationChecks(unittest.TestCase):
 
     def test_too_few_good_steps(self):
         self.assertIsNone(calibration.summarize([9750.05, None, None, 9750.05, None]))
+
+
+class LocalSpectrumChecks(unittest.TestCase):
+    def test_local_sweep_is_found_like_batc_data(self):
+        # 3841 bins over the QO-100 range: noise at 15 dB, a 333 kS/s carrier 8 dB above.
+        bins = 3841
+        tenths = [150] * bins
+        for i in range(bins):
+            if abs(START_MHZ + i * (END_MHZ - START_MHZ) / (bins - 1) - 10497.25) < 0.17:
+                tenths[i] = 230
+        frame = to_view_scale(tenths)
+        self.assertEqual(frame[0], NOISE_LEVEL)
+        self.assertEqual(max(frame), NOISE_LEVEL + 8 * PER_DB)
+        signal = find_signal(frame, 10497.3)
+        self.assertEqual(signal.symbol_rate_ks, 333)
+        self.assertAlmostEqual(signal.center_mhz, 10497.25, delta=0.01)
+
+    def test_band_edge_bump_is_not_a_signal(self):
+        bins = 3841
+        tenths = [150 + (20 if i > bins * 0.95 else 0) for i in range(bins)]   # a 2 dB rise at the top edge
+        self.assertIsNone(find_signal(to_view_scale(tenths), 10499.1, MIN_RISE))
+
+
+class BandChecks(unittest.TestCase):
+    def test_terrestrial_band_has_no_beacon_snap(self):
+        import bands
+        band = bands.BY_KEY["70cm"]
+        bins = 1707   # 4 MHz at the sweep's bin width
+        tenths = [150] * bins
+        for i in range(bins):
+            if abs(band.start_mhz + i * (band.end_mhz - band.start_mhz) / (bins - 1) - 437.0) < 0.17:
+                tenths[i] = 230
+        signal = find_signal(to_view_scale(tenths), 437.05, MIN_RISE, band.start_mhz, band.end_mhz, band.beacon_mhz)
+        self.assertEqual(signal.symbol_rate_ks, 333)
+        self.assertAlmostEqual(signal.center_mhz, 437.0, delta=0.01)
+        self.assertTrue(all(band.gain_db in __import__("panels").GAINS for band in bands.BANDS))
+
+    def test_6cm_converter_if_ranges(self):
+        import bands
+        band = bands.BY_KEY["6cm"]
+        self.assertEqual(5705 - band.converter_los[0], 505)   # ON1AVO's example: RX5808, LO 5200
+        for lo in band.converter_los:   # every choice stays receivable by the stick
+            self.assertTrue(24 <= band.start_mhz - lo and band.end_mhz - lo <= 1766)
+        # Within the IF outputs Freddy gives: RX5808 450-600 MHz, KON-DWN-5560 at 5000 MHz 650-800 MHz.
+        self.assertTrue(450 <= band.start_mhz - 5200 and band.end_mhz - 5200 <= 600)
+        self.assertTrue(650 <= band.start_mhz - 5000 and band.end_mhz - 5000 <= 800)
 
 
 if __name__ == "__main__":

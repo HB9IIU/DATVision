@@ -15,8 +15,10 @@ The video sits between two columns that use the letterbox space.
 
 - **Left: stream information.** State (LOCKED, SEARCHING, REACQUIRING…),
   station/service and provider name from the transport stream's SDT, frequency,
-  symbol rate, mode, Es/N0 with a bar and margin above the approximate
-  quasi-error-free threshold for that mode (white tick), video codec and size,
+  symbol rate, mode, Es/N0 and a MiniTioune-style D number: the margin above the
+  approximate quasi-error-free threshold for that mode, green from 2 dB, amber
+  from 0, red below. The bar shows D around a centre tick (the threshold): right
+  for margin, red to the left when short, full at 8 dB. Then video codec and size,
   audio codec, bad frames and synchronisation losses since tuning.
 - **Bottom of the left column: magic eye or constellation; tap to alternate.**
   The magic eye is a drawn EM34/6E5-style tube: cold when stopped, lit with the
@@ -36,6 +38,15 @@ The video sits between two columns that use the letterbox space.
   within 5 kHz, else nothing changes. The result is shown with UNDO and kept on
   DONE; reception then returns to the previous station. Any tap on the spectrum,
   BEACON or STOP cancels it. Details are logged as `CALIBRATION` lines.
+- **BANDS** (replacing Full Video; tap the picture for that): QO-100 via the
+  LNB; 4 m, 2 m, 70 cm and 23 cm A/B (the IARU Region 1 ATV segments) direct
+  from the antenna; 6 cm via a downconverter. Terrestrial and converter bands
+  always use the local scan; their column shows RF gain (amplifier symbol) with
+  − / +, applied 0.8 s after the last tap. The 6 cm preset stores the converter
+  LO (5200 MHz RX5808, or 5000/4700/4600 MHz DG0VE KON-DWN-5560, chosen in its
+  Settings) and tunes RF − LO, e.g. 5705 MHz at 505 MHz. Bands wider than
+  10 MHz (23 cm, 6 cm) zoom to 3 MHz on the first tap; the second tunes.
+  QUIT TO DESKTOP and the credits are also on this page.
 - BATC spectrum across the bottom, without markers. A tap near a carrier snaps
   to it; the tuned signal is filled green, the others stay amber.
 - If the RTL-SDR stick is missing or drops off USB, the video area says so in
@@ -47,6 +58,21 @@ The video sits between two columns that use the letterbox space.
 The spectrum needs internet and represents BATC reception; quality readouts
 come from the local receiver. Stale spectrum data cannot trigger tuning.
 Signals above 1500 kS/s are rejected for this RTL-SDR setup.
+
+## Other screen sizes
+
+The layout is designed for 1024 x 600 and scaled to the screen at start
+(`ui/pi_player/ui_scale.py`): 800 x 480 gives 0.78, 1280 x 720 gives 1.2. All
+sizes, fonts, the magic eye and the spectrum follow. To check a size without
+that screen, open a layout preview in a window, e.g. on the TigerVNC desktop:
+
+```sh
+bash scripts/linux/preview-layout.sh 800x480      # default X display :1
+bash scripts/linux/preview-layout.sh 1280x720 :1
+```
+
+The preview leaves the stick, the receiver and saved settings alone, so it can
+run beside the real player; it shows the BATC spectrum for something to look at.
 
 ## Implementation and dependencies
 

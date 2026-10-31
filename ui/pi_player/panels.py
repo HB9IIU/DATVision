@@ -1,11 +1,13 @@
 """Touch panels beside the video and the full-screen settings page. GPL-3.0-or-later."""
 import math
 import time
-from PyQt5.QtCore import Qt, pyqtSignal, QPointF
-from PyQt5.QtGui import QColor, QPainter
-from PyQt5.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QStackedWidget
+from PyQt5.QtCore import Qt, pyqtSignal, QPointF, QRectF, QSize
+from PyQt5.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
+from PyQt5.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QSizePolicy,
+                             QStackedWidget)
 from magic_eye import MagicEye
 import calibration
+from ui_scale import px
 
 GREEN, AMBER, RED, DIM = "#50d7a0", "#ffbd45", "#ff6b6b", "#91a7ba"
 # Tuner gain steps of the R828D in the RTL-SDR Blog V4, dB.
@@ -44,11 +46,15 @@ def button(layout, text, signal, role=""):
 
 
 class QualityBar(QWidget):
-    """Es/N0 from -3 to 17 dB; the light tick marks what the current mode needs."""
+    """The D number as a bar: the mode's threshold is the tick in the middle; the
+    margin grows to the right (green, amber below 2 dB) or, when short, red to the
+    left; full at 8 dB either way. Without a known threshold: Es/N0 from -3 to 17 dB."""
+    FULL_DB = 8
+
     def __init__(self):
         super().__init__()
         self.value = self.required = None
-        self.setFixedHeight(10)
+        self.setFixedHeight(px(10))
 
     def set_value(self, value, required):
         self.value, self.required = value, required
@@ -59,12 +65,16 @@ class QualityBar(QWidget):
         painter.fillRect(self.rect(), QColor("#1b3140"))
         if self.value is None:
             return
-        scale = lambda db: round(max(0, min(1, (db + 3) / 20)) * self.width())
-        margin = None if self.required is None else self.value - self.required
-        color = GREEN if margin is None or margin >= 2 else AMBER if margin >= 0 else RED
-        painter.fillRect(0, 0, scale(self.value), self.height(), QColor(color))
-        if self.required is not None:
-            painter.fillRect(scale(self.required) - 1, 0, 2, self.height(), QColor("#dde8f1"))
+        width, height = self.width(), self.height()
+        if self.required is None:
+            painter.fillRect(0, 0, round(max(0, min(1, (self.value + 3) / 20)) * width), height, QColor(GREEN))
+            return
+        margin = self.value - self.required
+        middle = width // 2
+        length = round(min(1, abs(margin) / self.FULL_DB) * middle)
+        color = GREEN if margin >= 2 else AMBER if margin >= 0 else RED
+        painter.fillRect(middle if margin >= 0 else middle - length, 0, length, height, QColor(color))
+        painter.fillRect(middle - 1, 0, 2, height, QColor("#dde8f1"))
 
 
 class Constellation(QWidget):
@@ -76,7 +86,7 @@ class Constellation(QWidget):
         self.points = []
         self.modulation = ""
         self.received = 0
-        self.setFixedSize(120, 120)
+        self.setFixedSize(px(120), px(120))
 
     def set_points(self, hex_text, modulation):
         raw = bytes.fromhex(hex_text)
@@ -120,23 +130,23 @@ class InfoPanel(QFrame):
     def __init__(self):
         super().__init__(objectName="panel")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(2)
+        layout.setContentsMargins(px(10), px(10), px(10), px(10))
+        layout.setSpacing(px(2))
         self.state = label(layout, "state", "STARTING")
         self.service = label(layout, "service")
         self.service.setWordWrap(True)
         self.provider = label(layout, "caption")
-        layout.addSpacing(4)
+        layout.addSpacing(px(4))
         self.frequency = label(layout, "value")
         self.rate = label(layout, "value")
         self.mode = label(layout, "value")
-        layout.addSpacing(4)
+        layout.addSpacing(px(4))
         label(layout, "caption", "Es/N0")
         self.esn0 = label(layout, "big", "—")
         self.bar = QualityBar()
         layout.addWidget(self.bar)
-        self.margin = label(layout, "caption")
-        layout.addSpacing(4)
+        self.margin = label(layout, "dnumber")   # MiniTioune-style D: margin over the mode's threshold
+        layout.addSpacing(px(4))
         self.video = label(layout, "value")
         self.audio = label(layout, "value")
         self.errors = label(layout, "caption")
@@ -144,10 +154,10 @@ class InfoPanel(QFrame):
         self.note = label(layout, "caption")
         self.note.setWordWrap(True)
         # Tap to alternate between the magic eye and the constellation.
-        self.eye = MagicEye()
+        self.eye = MagicEye(px(120))
         self.constellation = Constellation()
         self.indicator = QStackedWidget()
-        self.indicator.setFixedSize(120, 120)
+        self.indicator.setFixedSize(px(120), px(120))
         for widget in (self.eye, self.constellation):
             self.indicator.addWidget(widget)
             widget.tapped.connect(self.toggle_indicator)
@@ -178,7 +188,12 @@ class InfoPanel(QFrame):
         self.mode.setText(mode)
         self.esn0.setText("—" if esn0 is None else "%.1f dB" % esn0)
         self.bar.set_value(esn0, required)
-        self.margin.setText("" if esn0 is None or required is None else "margin %+.1f dB" % (esn0 - required))
+        if esn0 is None or required is None:
+            self.margin.setText("")
+        else:
+            margin = esn0 - required
+            self.margin.setText("D  %.1f" % margin)
+            self.margin.setStyleSheet("color: %s;" % (GREEN if margin >= 2 else AMBER if margin >= 0 else RED))
         self.errors.setText("" if bad is None else "bad %d · lost %d" % (bad, lost))
 
     def show_streams(self, service, provider, video, audio):
@@ -191,39 +206,170 @@ class InfoPanel(QFrame):
         self.note.setText(text)
 
 
+def speaker_icon(volume, muted):
+    """A drawn speaker: one to three waves by volume, or a red cross when muted."""
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.Antialiasing)
+    color = QColor(RED if muted else "#dde8f1")
+    p.setPen(Qt.NoPen)
+    p.setBrush(color)
+    p.drawPolygon(QPolygonF([QPointF(6, 24), QPointF(18, 24), QPointF(32, 11), QPointF(32, 53), QPointF(18, 40), QPointF(6, 40)]))
+    p.setBrush(Qt.NoBrush)
+    p.setPen(QPen(color, 4.5, Qt.SolidLine, Qt.RoundCap))
+    if muted:
+        p.drawLine(QPointF(41, 24), QPointF(57, 40))
+        p.drawLine(QPointF(57, 24), QPointF(41, 40))
+    else:
+        for radius in (10, 18, 26)[:0 if volume == 0 else 1 if volume <= 33 else 2 if volume <= 66 else 3]:
+            p.drawArc(QRectF(32 - radius, 32 - radius, 2 * radius, 2 * radius), -45 * 16, 90 * 16)
+    p.end()
+    return QIcon(pixmap)
+
+
+def amplifier_icon():
+    """The schematic RF amplifier: a triangle with input and output leads."""
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(QPen(QColor("#dde8f1"), 4.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.drawLine(QPointF(3, 32), QPointF(15, 32))
+    p.drawPolygon(QPolygonF([QPointF(15, 12), QPointF(15, 52), QPointF(49, 32)]))
+    p.drawLine(QPointF(49, 32), QPointF(61, 32))
+    p.end()
+    return QIcon(pixmap)
+
+
+CONTROL_HEIGHT = 62
+
+
 class ControlPanel(QFrame):
     mute = pyqtSignal()
     louder = pyqtSignal()
     quieter = pyqtSignal()
     beacon = pyqtSignal()
     stop_start = pyqtSignal()
-    full_video = pyqtSignal()
+    bands = pyqtSignal()
     settings = pyqtSignal()
+    gain_down = pyqtSignal()
+    gain_up = pyqtSignal()
 
     def __init__(self):
         super().__init__(objectName="panel")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(px(8), px(8), px(8), px(8))
+        layout.setSpacing(px(8))
+        # Groups of equal-height controls: audio, then reception, then pages.
         self.sound = button(layout, "", self.mute)
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        button(row, "−", self.quieter, "symbol")
-        button(row, "+", self.louder, "symbol")
-        layout.addLayout(row)
-        button(layout, "BEACON", self.beacon)
+        self.pair(layout, self.quieter, self.louder)
+        layout.addSpacing(px(10))
+        # Terrestrial bands: RF gain right here instead of BEACON, STOP and SETTINGS.
+        self.gain = QWidget()
+        gain = QVBoxLayout(self.gain)
+        gain.setContentsMargins(0, 0, 0, 0)
+        gain.setSpacing(px(8))
+        readout = QFrame(objectName="readout")
+        readout.setFixedHeight(px(CONTROL_HEIGHT))
+        row = QHBoxLayout(readout)
+        row.setContentsMargins(px(4), 0, px(4), 0)
+        row.setSpacing(px(4))
+        row.addStretch()
+        symbol = QLabel()
+        symbol.setPixmap(amplifier_icon().pixmap(px(26), px(26)))
+        row.addWidget(symbol)
+        self.gain_value = label(row, "readoutText")
+        row.addStretch()
+        gain.addWidget(readout)
+        self.pair(gain, self.gain_down, self.gain_up)
+        layout.addWidget(self.gain)
+        self.beacon_button = button(layout, "BEACON", self.beacon)
         self.run = button(layout, "STOP", self.stop_start)
-        button(layout, "FULL\nVIDEO", self.full_video)
-        button(layout, "SETTINGS", self.settings)
+        layout.addStretch()
+        button(layout, "BANDS", self.bands)   # full video: tap the picture
+        self.settings_button = button(layout, "SETTINGS", self.settings)
         for widget in self.findChildren(QPushButton):
-            widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            widget.setFixedHeight(px(CONTROL_HEIGHT))
+
+    def pair(self, layout, minus, plus):
+        row = QHBoxLayout()
+        row.setSpacing(px(8))
+        button(row, "−", minus, "symbol")
+        button(row, "+", plus, "symbol")
+        layout.addLayout(row)
+
+    def show_band(self, band):
+        self.beacon_button.setVisible(bool(band.beacon_mhz))
+        self.run.setVisible(band.via_lnb)
+        self.settings_button.setVisible(band.via_lnb or bool(band.converter_los))
+        self.gain.setVisible(not band.via_lnb)
+
+    def show_gain(self, gain_db):
+        self.gain_value.setText("%.1f dB" % gain_db)
 
     def show_audio(self, volume, muted):
-        self.sound.setText("MUTED" if muted else "SOUND\n%d %%" % volume)
-        self.sound.setStyleSheet("color: %s;" % RED if muted else "")
+        self.sound.setIcon(speaker_icon(volume, muted))
+        self.sound.setIconSize(QSize(px(38), px(38)))
+        self.sound.setText("" if muted else " %d %%" % volume)
 
     def show_running(self, running):
         self.run.setText("STOP" if running else "START")
+
+
+class BandsPage(QWidget):
+    chosen = pyqtSignal(str)
+    quit = pyqtSignal()
+
+    def __init__(self, bands, credits):
+        super().__init__(objectName="settings")
+        self.current = bands[0].key
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(px(24), px(16), px(24), px(16))
+        layout.setSpacing(px(14))
+        top = QHBoxLayout()
+        label(top, "title", "Bands")
+        top.addStretch()
+        back = QPushButton("BACK")
+        back.setFocusPolicy(Qt.NoFocus)
+        back.setFixedSize(px(150), px(60))
+        back.clicked.connect(lambda: self.chosen.emit(self.current))
+        top.addWidget(back)
+        layout.addLayout(top)
+        grid = QGridLayout()
+        grid.setSpacing(px(14))
+        self.buttons = {}
+        for index, band in enumerate(bands):
+            widget = QPushButton(objectName="band")
+            widget.setCheckable(True)
+            widget.setFocusPolicy(Qt.NoFocus)
+            # Three lines of different weight: the band name stands out.
+            lines = QVBoxLayout(widget)
+            lines.setSpacing(px(2))
+            lines.addStretch()
+            for text, role in ((band.name, "bandName"), ("%g – %g MHz" % (band.start_mhz, band.end_mhz), "bandRange"),
+                               ("via LNB" if band.via_lnb else "via converter" if band.converter_los else "direct antenna",
+                                "bandSource")):
+                line = label(lines, role, text)
+                line.setAlignment(Qt.AlignCenter)
+                line.setAttribute(Qt.WA_TransparentForMouseEvents)
+            lines.addStretch()
+            widget.clicked.connect(lambda _, key=band.key: self.chosen.emit(key))
+            grid.addWidget(widget, index // 3, index % 3)
+            self.buttons[band.key] = widget
+        layout.addLayout(grid)
+        layout.addStretch()
+        bottom = QHBoxLayout()
+        about = QLabel(credits, objectName="caption")
+        about.setWordWrap(True)
+        bottom.addWidget(about, 1)
+        button(bottom, "QUIT TO\nDESKTOP", self.quit, "danger").setFixedSize(px(170), px(64))
+        layout.addLayout(bottom)
+
+    def show_current(self, key):
+        self.current = key
+        for name, widget in self.buttons.items():
+            widget.setChecked(name == key)
 
 
 class SettingsPage(QWidget):
@@ -235,48 +381,88 @@ class SettingsPage(QWidget):
         super().__init__(objectName="settings")
         self.lnb_mhz = 9750.0
         self.gain_db = 40.2
+        self.source = "local"
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 16, 24, 16)
-        layout.setSpacing(10)
+        layout.setContentsMargins(px(24), px(16), px(24), px(16))
+        layout.setSpacing(px(10))
         top = QHBoxLayout()
-        label(top, "title", "Settings")
+        self.title = label(top, "title", "Settings")
         top.addStretch()
-        button(top, "DONE", self.done).setFixedSize(150, 60)
+        button(top, "DONE", self.done).setFixedSize(px(150), px(60))
         layout.addLayout(top)
 
-        # The LNB is measured on the beacon rather than entered by hand.
-        label(layout, "caption", "LNB OSCILLATOR")
+        # Spectrum source and LNB only apply to QO-100.
+        self.qo100_section = QWidget()
+        qo100 = QVBoxLayout(self.qo100_section)
+        qo100.setContentsMargins(0, 0, 0, 0)
+        qo100.setSpacing(px(10))
+        label(qo100, "caption", "SPECTRUM")
         row = QHBoxLayout()
-        row.setSpacing(12)
+        row.setSpacing(px(8))
+        self.source_buttons = {}
+        for source, text in (("local", "LOCAL SCAN"), ("batc", "BATC ONLINE")):
+            widget = QPushButton(text)
+            widget.setCheckable(True)
+            widget.setFocusPolicy(Qt.NoFocus)
+            widget.setFixedSize(px(200), px(60))
+            widget.clicked.connect(lambda _, source=source: self.set_source(source))
+            row.addWidget(widget)
+            self.source_buttons[source] = widget
+        row.addStretch()
+        qo100.addLayout(row)
+        qo100.addSpacing(px(6))
+
+        # The LNB is measured on the beacon rather than entered by hand.
+        label(qo100, "caption", "LNB OSCILLATOR")
+        row = QHBoxLayout()
+        row.setSpacing(px(12))
         self.lnb = label(row, "big")
-        self.lnb.setFixedWidth(230)
+        self.lnb.setFixedWidth(px(230))
         self.calibrate_button = button(row, "", self.calibrate)
-        self.calibrate_button.setFixedSize(200, 60)
+        self.calibrate_button.setFixedSize(px(200), px(60))
         self.undo = QPushButton("UNDO")
         self.undo.setFocusPolicy(Qt.NoFocus)
-        self.undo.setFixedSize(110, 60)
+        self.undo.setFixedSize(px(110), px(60))
         self.undo.clicked.connect(self.undo_calibration)
         self.undo.hide()
         row.addWidget(self.undo)
         row.addStretch()
-        layout.addLayout(row)
-        self.calibration_note = label(layout, "value")
+        qo100.addLayout(row)
+        self.calibration_note = label(qo100, "value")
         self.calibration_note.setWordWrap(True)
-        layout.addSpacing(10)
+        qo100.addSpacing(px(10))
+
+        layout.addWidget(self.qo100_section)
+
+        # Downconverter bands: the LO the receive frequency is shifted by.
+        self.converter_section = QWidget()
+        converter = QVBoxLayout(self.converter_section)
+        converter.setContentsMargins(0, 0, 0, px(10))
+        converter.setSpacing(px(8))
+        label(converter, "caption", "CONVERTER LO")
+        self.lo_row = QHBoxLayout()
+        self.lo_row.setSpacing(px(8))
+        self.lo_row.addStretch()
+        converter.addLayout(self.lo_row)
+        self.lo_note = label(converter, "value")
+        layout.addWidget(self.converter_section)
+        self.lo_buttons = {}
+        self.lo_mhz = 0
+        self.band = None
 
         label(layout, "caption", "RF GAIN")
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setSpacing(px(8))
         for text, step in (("−", -1), ("+", 1)):
             widget = QPushButton(text, objectName="symbol")
             widget.setFocusPolicy(Qt.NoFocus)
-            widget.setFixedSize(110, 60)
+            widget.setFixedSize(px(110), px(60))
             widget.clicked.connect(lambda _, step=step: self.step_gain(step))
             row.addWidget(widget)
             if step < 0:
                 self.gain = label(row, "big")
                 self.gain.setAlignment(Qt.AlignCenter)
-                self.gain.setFixedWidth(160)
+                self.gain.setFixedWidth(px(160))
         row.addStretch()
         layout.addLayout(row)
         label(layout, "caption", "Changes are applied when you press DONE.")
@@ -287,10 +473,40 @@ class SettingsPage(QWidget):
         about.setWordWrap(True)
         bottom.addWidget(about, 1)
         quit_button = button(bottom, "QUIT TO\nDESKTOP", self.quit, "danger")
-        quit_button.setFixedSize(170, 64)
+        quit_button.setFixedSize(px(170), px(64))
         layout.addLayout(bottom)
 
-    def load(self, lnb_mhz, gain_db):
+    def set_lo(self, lo_mhz):
+        self.lo_mhz = lo_mhz
+        for lo, widget in self.lo_buttons.items():
+            widget.setChecked(lo == lo_mhz)
+        example = (self.band.start_mhz + self.band.end_mhz) / 2
+        self.lo_note.setText("The stick receives RF − LO: %g MHz is tuned at %g MHz." % (example, example - lo_mhz))
+
+    def set_source(self, source):
+        self.source = source
+        for name, widget in self.source_buttons.items():
+            widget.setChecked(name == source)
+
+    def load(self, lnb_mhz, gain_db, source, band, lo_mhz):
+        self.title.setText("Settings · " + band.name)
+        self.qo100_section.setVisible(band.via_lnb)
+        self.converter_section.setVisible(bool(band.converter_los))
+        self.band = band
+        for widget in self.lo_buttons.values():
+            widget.deleteLater()
+        self.lo_buttons = {}
+        for lo, name in zip(band.converter_los, band.converter_names):
+            widget = QPushButton("%g MHz\n%s" % (lo, name))
+            widget.setCheckable(True)
+            widget.setFocusPolicy(Qt.NoFocus)
+            widget.setFixedSize(px(190), px(64))
+            widget.clicked.connect(lambda _, lo=lo: self.set_lo(lo))
+            self.lo_row.insertWidget(self.lo_row.count() - 1, widget)
+            self.lo_buttons[lo] = widget
+        if band.converter_los:
+            self.set_lo(lo_mhz)
+        self.set_source(source)
         self.calibration_note.setText("")
         self.undo.hide()
         self.set_lnb(lnb_mhz)
