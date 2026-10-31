@@ -19,6 +19,8 @@ if(DATVRX_RTL)
     add_executable(${tool} tools/${tool}.cpp)
     target_include_directories(${tool} PRIVATE ${RTLSDR_INCLUDE_DIR})
     target_link_libraries(${tool} PRIVATE ${RTLSDR_LIBRARY})
+    # A release carries the V4 driver next to the tools; look there first.
+    set_target_properties(${tool} PROPERTIES BUILD_RPATH "\$ORIGIN")
     if(WIN32)
       target_link_options(${tool} PRIVATE -static-libgcc -static-libstdc++)
     endif()

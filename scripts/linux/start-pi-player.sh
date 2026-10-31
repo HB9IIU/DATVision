@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# Started with the desktop: give it a moment to settle first.
+if [[ ${1:-} == --autostart ]]; then
+  sleep 8
+fi
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
 # Native libVLC embedding uses an X11 window inside the existing labwc desktop.
