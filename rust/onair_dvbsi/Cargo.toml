@@ -1,0 +1,10 @@
+[package]
+name = "onair_dvbsi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "OnAir DVB service information text (character sets), teletext (EN 300 706) and DVB subtitle (EN 300 743) decoding"
+
+[dependencies]
+onair_common = { path = "../onair_common" }

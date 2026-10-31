@@ -1,0 +1,10 @@
+build/
+rust/target/
+TEMPO_FOLDER*/
+CMakeUserPresets.json
+captures/
+test-output/
+player-settings.json
+ui/**/bin/
+ui/**/obj/
+milestones/

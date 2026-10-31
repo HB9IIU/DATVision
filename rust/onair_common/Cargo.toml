@@ -1,0 +1,9 @@
+[package]
+name = "onair_common"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "Shared OnAir building blocks: CRC, bit reader/writer, endian, hex, parity, gray, NRZI, Manchester, ring"
+publish = false
+
+[dependencies]

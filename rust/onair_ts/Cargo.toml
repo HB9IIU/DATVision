@@ -1,0 +1,10 @@
+[package]
+name = "onair_ts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "OnAir MPEG-TS packet header, PSI/SI section parsers (PAT, PMT, SDT, NIT, EIT, TVCT, TDT), section CRC-32"
+
+[dependencies]
+onair_common = { path = "../onair_common" }
