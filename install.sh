@@ -95,11 +95,12 @@ ask "Continue?" || exit 0
 bold "Administrator password (for packages and the two stick files)"
 sudo -v < /dev/tty
 
-bold "Installing packages"
-sudo apt-get update -qq
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${PACKAGES[@]}"
+bold "[1/5] Installing packages"
+note "This can take several minutes, especially on a Pi 4; apt shows its progress below."
+sudo apt-get update
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${PACKAGES[@]}"
 
-bold "Giving you access to the RTL-SDR stick"
+bold "[2/5] Giving you access to the RTL-SDR stick"
 sudo tee "$UDEV_RULE" >/dev/null <<'EOF'
 # RTL-SDR sticks (RTL2832U), for the RTL DATV Player: usable without root.
 SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", MODE="0666"
@@ -114,8 +115,9 @@ EOF
 sudo udevadm control --reload-rules
 sudo udevadm trigger --subsystem-match=usb || true
 sudo modprobe -r dvb_usb_rtl28xxu 2>/dev/null || true
+note "udev rule and DVB-T blacklist installed."
 
-bold "Downloading the player"
+bold "[3/5] Downloading the player"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 curl -fL --progress-bar -o "$work/$ARCHIVE" "$URL/$ARCHIVE" || fail "download of $ARCHIVE failed."
@@ -123,7 +125,7 @@ curl -fsSL -o "$work/SHA256SUMS" "$URL/SHA256SUMS" || fail "download of SHA256SU
 (cd "$work" && grep " $ARCHIVE\$" SHA256SUMS | sha256sum -c --quiet -) || fail "the download is damaged (checksum)."
 tar -C "$work" -xzf "$work/$ARCHIVE"
 
-bold "Installing into $APP_DIR"
+bold "[4/5] Installing into $APP_DIR"
 stop_player
 if [[ -f $APP_DIR/pi-player-settings.json ]]; then
   cp "$APP_DIR/pi-player-settings.json" "$work/pi-datv-rx/"
@@ -131,8 +133,9 @@ fi
 rm -rf "$APP_DIR"
 mv "$work/pi-datv-rx" "$APP_DIR"
 mkdir -p "$APP_DIR/test-output"
+note "Player $VERSION installed in $APP_DIR."
 
-bold "Desktop icon and automatic start"
+bold "[5/5] Desktop icon and automatic start"
 mkdir -p "$(dirname "$LAUNCHER")" "$(dirname "$AUTOSTART")" "$DESKTOP_DIR"
 cat > "$LAUNCHER" <<EOF
 [Desktop Entry]
@@ -148,6 +151,7 @@ EOF
 cp "$LAUNCHER" "$DESKTOP_DIR/RTL DATV Player.desktop"
 chmod u+x "$LAUNCHER" "$DESKTOP_DIR/RTL DATV Player.desktop"
 sed 's|start-pi-player.sh"|start-pi-player.sh" --autostart|' "$LAUNCHER" > "$AUTOSTART"
+note "Icon on the desktop; starts by itself with the desktop."
 
 bold "Checking the stick"
 if lsusb | grep -q -E '0bda:(2838|2832)'; then
