@@ -31,7 +31,7 @@ REPORT = re.compile(r"(DVB-S2X|DVB-S2|DVB-S) (\S+) (\d+/\d+)\S*(?: short)?(?: pi
                     r"\s+Es/N0 ([\d.-]+) dB\s+ok \d+\s+bad (\d+)")
 RTL_SDR_IDS = {("0bda", "2838"), ("0bda", "2832")}
 NO_STICK = "RTL-SDR stick not found\n\nUnplug it and plug it back in.\nReception resumes by itself."
-STICK_BUSY = "RTL-SDR stick is busy\n\nClose the other receiver program,\nthen press START."
+STICK_BUSY = "RTL-SDR stick is busy\n\nUnplug it and plug it back in.\nIf that does not help, restart the Pi."
 SIGNAL_LOST_NOTICE_S = 3   # replace the frozen picture with a clear message
 SIGNAL_LOST_GIVE_UP_S = 30  # LOCAL: stop waiting for the station and scan the band again
 CREDITS = ("HB9IIU RTL DATV Player · GPL v3; source and notices in the project.\n"

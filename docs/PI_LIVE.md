@@ -32,10 +32,13 @@ pkg-config and libusb development files:
 ```sh
 git clone https://github.com/osmocom/rtl-sdr ~/projects/datvrx-rtl-driver
 git -C ~/projects/datvrx-rtl-driver checkout 797f8143266d983c56d8f35d2d442527529dd8a5
-cmake -S ~/projects/datvrx-rtl-driver -B ~/projects/datvrx-rtl-driver/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$HOME/.local/datvrx-rtl" -DINSTALL_UDEV_RULES=OFF
+cmake -S ~/projects/datvrx-rtl-driver -B ~/projects/datvrx-rtl-driver/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$HOME/.local/datvrx-rtl" -DINSTALL_UDEV_RULES=OFF -DDETACH_KERNEL_DRIVER=ON
 cmake --build ~/projects/datvrx-rtl-driver/build --parallel 2
 cmake --install ~/projects/datvrx-rtl-driver/build
 ```
+
+`DETACH_KERNEL_DRIVER=ON` lets the driver release the stick from the kernel's
+DVB-T TV driver itself, so a fresh system works before the blacklist applies.
 
 Then configure our optional capture helper to use that library:
 

@@ -114,8 +114,12 @@ blacklist rtl2830
 EOF
 sudo udevadm control --reload-rules
 sudo udevadm trigger --subsystem-match=usb || true
-sudo modprobe -r dvb_usb_rtl28xxu 2>/dev/null || true
+# Release the stick from the TV driver now; the blacklist only acts from the next start.
+sudo modprobe -r dvb_usb_rtl28xxu rtl2832_sdr rtl2832 rtl2830 2>/dev/null || true
 note "udev rule and DVB-T blacklist installed."
+if lsmod | grep -q '^dvb_usb_rtl28xxu'; then
+  note "The DVB-T TV driver is still holding the stick: unplug and replug it after the installation."
+fi
 
 bold "[3/5] Downloading the player"
 work=$(mktemp -d)
@@ -159,6 +163,7 @@ if lsusb | grep -q -E '0bda:(2838|2832)'; then
     note "RTL-SDR stick works: $(grep -m1 -E 'Detected|Found' "$work/stick.log" || echo ok)."
   else
     note "The stick did not open yet. Unplug it, plug it back in, and start the player."
+    note "If it still says 'busy', restart the Pi once (the TV-driver blacklist then applies)."
   fi
 else
   note "No RTL-SDR stick found. Plug it in before starting the player."
