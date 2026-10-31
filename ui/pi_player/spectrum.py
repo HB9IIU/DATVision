@@ -6,7 +6,12 @@ from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen
 from PyQt5.QtNetwork import QNetworkRequest
 from PyQt5.QtWebSockets import QWebSocket
 from PyQt5.QtWidgets import QWidget
-from signal_finder import START_MHZ, END_MHZ
+from signal_finder import START_MHZ, END_MHZ, detect_signals
+
+
+# Tuned slot: fill and trace colours for searching, locked and lost.
+SLOT_COLORS = {"searching": ((58, 150, 255), "#8cc4ff"), "locked": ((37, 194, 110), "#50d7a0"),
+               "lost": ((230, 70, 70), "#ff8a8a")}
 
 
 class Spectrum(QWidget):
@@ -16,12 +21,14 @@ class Spectrum(QWidget):
         super().__init__(parent)
         self.frame = ()
         self.last_frame = 0
+        self.signals = []
+        self.last_detection = 0
         self.online = False
         self.selected = None
+        self.slot_state = "searching"
         self.message = ""
         self.setMinimumHeight(108)
         self.setCursor(Qt.CrossCursor)
-        self.setToolTip("BATC remote spectrum · tap a signal to tune. Signal quality above is measured locally.")
         self.socket = QWebSocket()
         self.socket.connected.connect(self.on_connected)
         self.socket.disconnected.connect(self.on_disconnected)
@@ -56,11 +63,19 @@ class Spectrum(QWidget):
             return
         self.frame = struct.unpack("<%dH" % (len(data) // 2), data)
         self.last_frame = time.monotonic()
+        if self.last_frame - self.last_detection >= 1:
+            self.signals = detect_signals(self.frame)
+            self.last_detection = self.last_frame
         self.update()
 
     @property
     def fresh(self):
         return self.online and self.frame and time.monotonic() - self.last_frame < 5
+
+    def set_slot(self, signal, state, now=False):
+        if (signal, state) != (self.selected, self.slot_state):
+            self.selected, self.slot_state = signal, state
+            self.repaint() if now else self.update()
 
     def show_message(self, message):
         self.message = message
@@ -85,13 +100,12 @@ class Spectrum(QWidget):
         top = 10
         plot = max(1, bottom - top)
         x = lambda mhz: (mhz - START_MHZ) / (END_MHZ - START_MHZ) * width
+        band = None
+        fill_rgb, trace = SLOT_COLORS[self.slot_state]
         if self.selected:
             half = self.selected.symbol_rate_ks * 1.35 / 2000
-            band = QRectF(x(self.selected.center_mhz - half), top,
-                          x(self.selected.center_mhz + half) - x(self.selected.center_mhz - half), plot)
-            painter.fillRect(band, QColor(37, 194, 110, 32))
-            painter.setPen(QPen(QColor("#25c26e"), 1))
-            painter.drawRect(band)
+            band = QRectF(x(self.selected.center_mhz - half), 0,
+                          x(self.selected.center_mhz + half) - x(self.selected.center_mhz - half), bottom)
         if self.frame:
             line = QPainterPath()
             for pixel in range(width):
@@ -111,6 +125,16 @@ class Spectrum(QWidget):
             painter.fillPath(fill, QColor(255, 176, 0, 45))
             painter.setPen(QPen(QColor("#ffb000"), 1))
             painter.drawPath(line)
+            if band:
+                # The tuned slot: the signal itself filled in its state colour.
+                painter.save()
+                painter.setClipRect(band)
+                painter.fillPath(fill, QColor(*fill_rgb, 170))
+                painter.setPen(QPen(QColor(trace), 1.5))
+                painter.drawPath(line)
+                painter.restore()
+        elif band:
+            painter.fillRect(band, QColor(*fill_rgb, 60))
         painter.setPen(QColor("#91a7ba"))
         for index in range(10):
             frequency = START_MHZ + index
@@ -129,7 +153,10 @@ class Spectrum(QWidget):
             painter.drawText(6, painter.fontMetrics().ascent() + 4, text)
 
     def stop(self):
-        self.socket.disconnected.disconnect(self.on_disconnected)
+        try:
+            self.socket.disconnected.disconnect(self.on_disconnected)
+        except TypeError:
+            pass   # already stopped: closing can run twice
         self.retry.stop()
         self.clock.stop()
         self.socket.abort()

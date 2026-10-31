@@ -1,6 +1,7 @@
 """Small ctypes binding to the system libVLC. Video is embedded in an X11 Qt widget."""
 import ctypes as C
 from ctypes.util import find_library
+import threading
 
 
 class Video:
@@ -31,13 +32,18 @@ class Video:
         self.instance = self.lib.libvlc_new(len(options), (C.c_char_p * len(options))(*options))
         if not self.instance:
             raise RuntimeError("VLC could not initialize")
-        self.player = self.lib.libvlc_media_player_new(self.instance)
-        self.lib.libvlc_media_player_set_xwindow(self.player, int(window_id))
-        self.lib.libvlc_video_set_mouse_input(self.player, 0)
-        self.lib.libvlc_video_set_key_input(self.player, 0)
+        self.window_id = int(window_id)
+        self.retiring = []
+        self.player = self.new_player()
+
+    def new_player(self):
+        player = self.lib.libvlc_media_player_new(self.instance)
+        self.lib.libvlc_media_player_set_xwindow(player, self.window_id)
+        self.lib.libvlc_video_set_mouse_input(player, 0)
+        self.lib.libvlc_video_set_key_input(player, 0)
+        return player
 
     def play(self, port, volume):
-        self.stop()
         media = self.lib.libvlc_media_new_location(self.instance, ("udp://@127.0.0.1:%d" % port).encode())
         for option in (b":demux=ts", b":network-caching=500"):
             self.lib.libvlc_media_add_option(media, option)
@@ -50,15 +56,28 @@ class Video:
     def volume(self, volume):
         self.lib.libvlc_audio_set_volume(self.player, max(0, min(100, volume)))
 
-    def has_picture(self):
+    def size(self):
         width, height = C.c_uint(), C.c_uint()
         self.lib.libvlc_video_get_size(self.player, 0, C.byref(width), C.byref(height))
-        return width.value > 0 and height.value > 0
+        return width.value, height.value
+
+    def has_picture(self):
+        return all(self.size())
 
     def stop(self):
-        self.lib.libvlc_media_player_stop(self.player)
+        # Stopping VLC takes about 0.6 s on the Pi: retire the old player in the
+        # background and continue at once with a fresh one.
+        old, self.player = self.player, self.new_player()
+        self.retiring = [thread for thread in self.retiring if thread.is_alive()]
+        self.retiring.append(threading.Thread(target=self.retire, args=(old,), daemon=True))
+        self.retiring[-1].start()
+
+    def retire(self, player):
+        self.lib.libvlc_media_player_stop(player)
+        self.lib.libvlc_media_player_release(player)
 
     def close(self):
-        self.stop()
-        self.lib.libvlc_media_player_release(self.player)
+        for thread in self.retiring:
+            thread.join(timeout=3)
+        self.retire(self.player)
         self.lib.libvlc_release(self.instance)

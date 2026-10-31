@@ -10,13 +10,39 @@ Capture, DVB decoding, video and audio all run on the Pi.
 
 ## Interface
 
-- Large embedded video with letterboxing to preserve the source aspect ratio.
-- One reception-status line: frequency, symbol rate, mode, Es/N0 and bad frames.
-- BATC spectrum across the bottom; tap a signal to estimate its frequency and
-  symbol rate and retune. The green band marks the selected signal.
-- The **⋮** button opens a touch-sized menu for fullscreen, beacon, Stop,
-  immediate volume/mute, LNB configuration, credits and Quit to desktop.
-- F11 toggles fullscreen, Escape returns to a normal window, Q quits.
+Designed for touch only: no mouse, keyboard, menus or text entry are needed.
+The video sits between two columns that use the letterbox space.
+
+- **Left: stream information.** State (LOCKED, SEARCHING, REACQUIRING…),
+  station/service and provider name from the transport stream's SDT, frequency,
+  symbol rate, mode, Es/N0 with a bar and margin above the approximate
+  quasi-error-free threshold for that mode (white tick), video codec and size,
+  audio codec, bad frames and synchronisation losses since tuning.
+- **Bottom of the left column: magic eye or constellation; tap to alternate.**
+  The magic eye is a drawn EM34/6E5-style tube: cold when stopped, lit with the
+  shadow wide open while searching, and closing with the Es/N0 margin once
+  locked (fully closed at about 5 dB margin). The constellation shows 256
+  recent symbols four times a second, from `datvrx --cells`. The choice is saved.
+- **Right: controls.** Sound/Mute, volume − / +, Beacon, Stop/Start (Start
+  resumes the last signal), Full Video and Settings.
+- **Tap the video** (or Full Video) to show only the picture; tap again to return.
+- **Settings** is a full-screen page: the LNB oscillator (shown, not typed in)
+  with CALIBRATE / RECALIBRATE ON BEACON, RF gain through the R828D steps,
+  credits and Quit to desktop. Gain changes are applied, with a retune, on DONE.
+- **CALIBRATE ON BEACON** measures the real LNB oscillator. The beacon is tuned
+  five times, deliberately detuned by −100, −50, 0, +50 and +100 kHz; after each
+  lock, eight readings of the receiver's tracked carrier offset (`datvrx carrier`
+  lines) give `true LNB = assumed LNB − offset − detune`. The steps must agree
+  within 5 kHz, else nothing changes. The result is shown with UNDO and kept on
+  DONE; reception then returns to the previous station. Any tap on the spectrum,
+  BEACON or STOP cancels it. Details are logged as `CALIBRATION` lines.
+- BATC spectrum across the bottom, without markers. A tap near a carrier snaps
+  to it; the tuned signal is filled green, the others stay amber.
+- If the RTL-SDR stick is missing or drops off USB, the video area says so in
+  large text and the state shows NO RTL-SDR. Reception resumes by itself two
+  seconds after the stick is plugged back in. A stick held by another program
+  is reported as STICK BUSY.
+- F11, Escape and Q remain only as development keys.
 
 The spectrum needs internet and represents BATC reception; quality readouts
 come from the local receiver. Stale spectrum data cannot trigger tuning.
@@ -55,8 +81,9 @@ bash scripts/linux/install-pi-player-desktop.sh
 Stop any standalone beacon or Windows remote-player session first: only one
 receiver can own the stick. Settings are stored in ignored
 `pi-player-settings.json`. Diagnostics are in `test-output/pi-player-radio.log`
-and `pi-player-receiver.log`. A supervised development launch also writes
-`pi-player-ui.log` and uses the user service `datv-touch-player.service`.
+and `pi-player-receiver.log`. Every launch (desktop icon, terminal or the
+development service `datv-touch-player.service`) appends a timestamped start
+line, tuning events, problems and any Python crash trace to `pi-player-ui.log`.
 
 ## Verification — 31 October 2026
 

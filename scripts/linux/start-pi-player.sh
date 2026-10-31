@@ -12,4 +12,7 @@ if pgrep -x rtl_iq >/dev/null || pgrep -x datvrx >/dev/null; then
   echo 'Stop the other DATV receiver before starting the fullscreen player.' >&2
   exit 1
 fi
-exec /usr/bin/python3 ui/pi_player/main.py
+# Keep a record however the player is started: desktop icon, terminal or service.
+exec >>test-output/pi-player-ui.log 2>&1
+echo "=== $(date '+%F %T') player start"
+exec /usr/bin/python3 -X faulthandler ui/pi_player/main.py
