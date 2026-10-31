@@ -1,7 +1,8 @@
 # Later deployment to a remote Raspberry Pi
 
 Build natively on the Pi using the same source. Windows executables cannot be
-used on the Pi. No Pi connection or deployment is configured yet.
+used on the Pi. SSH and VS Code are now configured for `daniel@pidatvmon.local`,
+with source in `/home/daniel/projects/pi-datv-rx`; see `REMOTE_IDE.md`.
 
 1. Install Raspberry Pi OS, enable SSH, and confirm the Pi model, architecture,
    available RAM and hostname before choosing performance settings.

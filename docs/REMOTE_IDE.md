@@ -35,9 +35,11 @@ VS Code's default build task runs `bash scripts/linux/build.sh` on the Pi.
 The synthetic-test task uses `build/linux`. The Windows GUI remains Windows-only;
 the Pi will build and run the C++/Rust receiver.
 
-Git, g++, CMake and FFmpeg were found on the Pi. Cargo was not available in the
-initial SSH shell; installing/configuring Rust and checking all native build
-dependencies are the next stage. No Pi receiver build or RF trial is claimed by
-the IDE setup. See `REMOTE_PI.md` for the native build and test sequence.
+Git, g++, CMake and FFmpeg were found on the Pi. Rust 1.99.1 and Cargo were
+subsequently installed for `daniel` with Rustup's minimal aarch64 GNU profile.
+The Linux build script loads `~/.cargo/env` if Cargo is not yet on the shell PATH,
+so an already-open VS Code window can run it without restarting.
+See `PI_VALIDATION.md` for native build/test results and `REMOTE_PI.md` for the
+build and test sequence.
 
 VS Code Remote SSH reference: https://code.visualstudio.com/docs/remote/ssh
