@@ -1,7 +1,17 @@
 """Small ctypes binding to the system libVLC. Video is embedded in an X11 Qt widget."""
 import ctypes as C
+import os
 from ctypes.util import find_library
 import threading
+
+
+class Stats(C.Structure):
+    # libvlc_media_stats_t (VLC 3)
+    _fields_ = [("read_bytes", C.c_int), ("input_bitrate", C.c_float), ("demux_read_bytes", C.c_int),
+                ("demux_bitrate", C.c_float), ("demux_corrupted", C.c_int), ("demux_discontinuity", C.c_int),
+                ("decoded_video", C.c_int), ("decoded_audio", C.c_int), ("displayed_pictures", C.c_int),
+                ("lost_pictures", C.c_int), ("played_abuffers", C.c_int), ("lost_abuffers", C.c_int),
+                ("sent_packets", C.c_int), ("sent_bytes", C.c_int), ("send_bitrate", C.c_float)]
 
 
 class Video:
@@ -23,12 +33,16 @@ class Video:
             "libvlc_video_set_mouse_input": ([C.c_void_p, C.c_uint], None),
             "libvlc_video_set_key_input": ([C.c_void_p, C.c_uint], None),
             "libvlc_video_get_size": ([C.c_void_p, C.c_uint, C.POINTER(C.c_uint), C.POINTER(C.c_uint)], C.c_int),
+            "libvlc_media_player_get_media": ([C.c_void_p], C.c_void_p),
+            "libvlc_media_get_stats": ([C.c_void_p, C.POINTER(Stats)], C.c_int),
         }
         for name, (args, result) in signatures.items():
             function = getattr(self.lib, name)
             function.argtypes = args
             function.restype = result
         options = [b"--no-video-title-show", b"--quiet", b"--avcodec-hw=none"]
+        # Diagnosis: extra libVLC options, e.g. DATVRX_VLC_OPTIONS="--no-audio".
+        options += [option.encode() for option in os.environ.get("DATVRX_VLC_OPTIONS", "").split()]
         self.instance = self.lib.libvlc_new(len(options), (C.c_char_p * len(options))(*options))
         if not self.instance:
             raise RuntimeError("VLC could not initialize")
@@ -60,6 +74,17 @@ class Video:
         width, height = C.c_uint(), C.c_uint()
         self.lib.libvlc_video_get_size(self.player, 0, C.byref(width), C.byref(height))
         return width.value, height.value
+
+    def stats(self):
+        """(decoded, displayed, lost) video pictures of the current stream, or None."""
+        media = self.lib.libvlc_media_player_get_media(self.player)
+        stats = Stats()
+        if not media or not self.lib.libvlc_media_get_stats(media, C.byref(stats)):
+            if media:
+                self.lib.libvlc_media_release(media)
+            return None
+        self.lib.libvlc_media_release(media)
+        return stats.decoded_video, stats.displayed_pictures, stats.lost_pictures
 
     def has_picture(self):
         return all(self.size())

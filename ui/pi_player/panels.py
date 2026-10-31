@@ -1,7 +1,7 @@
 """Touch panels beside the video and the full-screen settings page. GPL-3.0-or-later."""
 import math
 import time
-from PyQt5.QtCore import Qt, pyqtSignal, QPointF, QRectF, QSize
+from PyQt5.QtCore import Qt, pyqtSignal, QPointF, QRectF, QSize, QTimer
 from PyQt5.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PyQt5.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QSizePolicy,
                              QStackedWidget)
@@ -41,14 +41,15 @@ def button(layout, text, signal, role=""):
     widget = QPushButton(text, objectName=role)
     widget.setFocusPolicy(Qt.NoFocus)
     widget.clicked.connect(lambda: signal.emit())
-    layout.addWidget(widget)
+    if layout is not None:
+        layout.addWidget(widget)
     return widget
 
 
 class QualityBar(QWidget):
-    """The D number as a bar: the mode's threshold is the tick in the middle; the
-    margin grows to the right (green, amber below 2 dB) or, when short, red to the
-    left; full at 8 dB either way. Without a known threshold: Es/N0 from -3 to 17 dB."""
+    """The D number as a fuel gauge: empty at the decoding limit, full at 8 dB of
+    reserve; red below the limit (a short stub), amber up to 2 dB, then green.
+    Without a known threshold: Es/N0 from -3 to 17 dB."""
     FULL_DB = 8
 
     def __init__(self):
@@ -70,11 +71,11 @@ class QualityBar(QWidget):
             painter.fillRect(0, 0, round(max(0, min(1, (self.value + 3) / 20)) * width), height, QColor(GREEN))
             return
         margin = self.value - self.required
-        middle = width // 2
-        length = round(min(1, abs(margin) / self.FULL_DB) * middle)
-        color = GREEN if margin >= 2 else AMBER if margin >= 0 else RED
-        painter.fillRect(middle if margin >= 0 else middle - length, 0, length, height, QColor(color))
-        painter.fillRect(middle - 1, 0, 2, height, QColor("#dde8f1"))
+        if margin < 0:
+            painter.fillRect(0, 0, max(px(6), round(0.06 * width)), height, QColor(RED))
+            return
+        length = max(px(3), round(min(1, margin / self.FULL_DB) * width))
+        painter.fillRect(0, 0, length, height, QColor(GREEN if margin >= 2 else AMBER))
 
 
 class Constellation(QWidget):
@@ -228,6 +229,61 @@ def speaker_icon(volume, muted):
     return QIcon(pixmap)
 
 
+def symbol_icon(kind, color):
+    """Drawn symbols for the bottom row: 'gear' (settings) or 'power' (quit)."""
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(QPen(QColor(color), 5, Qt.SolidLine, Qt.RoundCap))
+    if kind == "power":
+        p.drawArc(QRectF(12, 14, 40, 40), 120 * 16, 300 * 16)
+        p.drawLine(QPointF(32, 8), QPointF(32, 32))
+    else:
+        for tooth in range(8):
+            p.save()
+            p.translate(32, 32)
+            p.rotate(tooth * 45)
+            p.drawLine(QPointF(0, -17), QPointF(0, -25))
+            p.restore()
+        p.drawEllipse(QPointF(32, 32), 14, 14)
+        p.drawEllipse(QPointF(32, 32), 4, 4)
+    p.end()
+    return QIcon(pixmap)
+
+
+def card_icon(kind):
+    """Small symbols for the settings cards, drawn in the accent colour."""
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(QPen(QColor("#8cc4ff"), 5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.setBrush(Qt.NoBrush)
+    if kind == "spectrum":
+        p.drawPolyline(QPolygonF([QPointF(4, 50), QPointF(14, 48), QPointF(20, 20), QPointF(36, 20), QPointF(42, 48),
+                                  QPointF(50, 46), QPointF(54, 36), QPointF(58, 46), QPointF(62, 48)]))
+    elif kind == "dish":
+        p.drawArc(QRectF(6, 6, 44, 52), 100 * 16, 160 * 16)
+        p.drawLine(QPointF(14, 32), QPointF(52, 18))
+        p.drawEllipse(QPointF(54, 17), 4, 4)
+        p.drawLine(QPointF(26, 56), QPointF(40, 56))
+    elif kind == "gain":
+        p.drawLine(QPointF(3, 32), QPointF(15, 32))
+        p.drawPolygon(QPolygonF([QPointF(15, 12), QPointF(15, 52), QPointF(49, 32)]))
+        p.drawLine(QPointF(49, 32), QPointF(61, 32))
+    elif kind == "mixer":
+        p.drawEllipse(QPointF(32, 32), 22, 22)
+        p.drawLine(QPointF(17, 17), QPointF(47, 47))
+        p.drawLine(QPointF(47, 17), QPointF(17, 47))
+    else:   # about
+        p.drawEllipse(QPointF(32, 32), 26, 26)
+        p.drawLine(QPointF(32, 28), QPointF(32, 46))
+        p.drawPoint(QPointF(32, 18))
+    p.end()
+    return QIcon(pixmap)
+
+
 def amplifier_icon():
     """The schematic RF amplifier: a triangle with input and output leads."""
     pixmap = QPixmap(64, 64)
@@ -242,7 +298,7 @@ def amplifier_icon():
     return QIcon(pixmap)
 
 
-CONTROL_HEIGHT = 62
+CONTROL_HEIGHT = 52
 
 
 class ControlPanel(QFrame):
@@ -255,16 +311,17 @@ class ControlPanel(QFrame):
     settings = pyqtSignal()
     gain_down = pyqtSignal()
     gain_up = pyqtSignal()
+    quit = pyqtSignal()
 
     def __init__(self):
         super().__init__(objectName="panel")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(px(8), px(8), px(8), px(8))
-        layout.setSpacing(px(8))
+        layout.setSpacing(px(6))
         # Groups of equal-height controls: audio, then reception, then pages.
         self.sound = button(layout, "", self.mute)
         self.pair(layout, self.quieter, self.louder)
-        layout.addSpacing(px(10))
+        layout.addSpacing(px(8))
         # Terrestrial bands: RF gain right here instead of BEACON, STOP and SETTINGS.
         self.gain = QWidget()
         gain = QVBoxLayout(self.gain)
@@ -288,9 +345,32 @@ class ControlPanel(QFrame):
         self.run = button(layout, "STOP", self.stop_start)
         layout.addStretch()
         button(layout, "BANDS", self.bands)   # full video: tap the picture
-        self.settings_button = button(layout, "SETTINGS", self.settings)
+        # Settings and quit as symbols, one above the other; quit asks for a second tap.
+        self.settings_button = button(layout, "", self.settings)
+        self.settings_button.setIcon(symbol_icon("gear", "#dde8f1"))
+        self.quit_button = QPushButton(objectName="danger")
+        self.quit_button.setFocusPolicy(Qt.NoFocus)
+        self.quit_button.clicked.connect(self.quit_tapped)
+        layout.addWidget(self.quit_button)
+        self.quit_timer = QTimer(self)
+        self.quit_timer.setSingleShot(True)
+        self.quit_timer.timeout.connect(self.disarm_quit)
+        self.disarm_quit()
         for widget in self.findChildren(QPushButton):
             widget.setFixedHeight(px(CONTROL_HEIGHT))
+            widget.setIconSize(QSize(px(34), px(34)))
+
+    def quit_tapped(self):
+        if self.quit_timer.isActive():
+            self.quit.emit()
+        else:
+            self.quit_button.setIcon(QIcon())
+            self.quit_button.setText("QUIT?")
+            self.quit_timer.start(3000)
+
+    def disarm_quit(self):
+        self.quit_button.setText("")
+        self.quit_button.setIcon(symbol_icon("power", "#ff9b9b"))
 
     def pair(self, layout, minus, plus):
         row = QHBoxLayout()
@@ -377,26 +457,37 @@ class SettingsPage(QWidget):
     quit = pyqtSignal()
     calibrate = pyqtSignal()
 
-    def __init__(self, credits):
+    def __init__(self, credits, version):
         super().__init__(objectName="settings")
         self.lnb_mhz = 9750.0
         self.gain_db = 40.2
         self.source = "local"
+        self.lo_buttons = {}
+        self.lo_mhz = 0
+        self.band = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(px(24), px(16), px(24), px(16))
-        layout.setSpacing(px(10))
+        layout.setSpacing(px(16))
         top = QHBoxLayout()
-        self.title = label(top, "title", "Settings")
+        heading = QVBoxLayout()
+        heading.setSpacing(px(2))
+        self.title = label(heading, "title", "Settings")
+        label(heading, "caption", "Changes are applied when you press DONE.")
+        top.addLayout(heading)
         top.addStretch()
-        button(top, "DONE", self.done).setFixedSize(px(150), px(60))
+        button(top, "DONE", self.done, "accent").setFixedSize(px(150), px(60))
         layout.addLayout(top)
 
-        # Spectrum source and LNB only apply to QO-100.
-        self.qo100_section = QWidget()
-        qo100 = QVBoxLayout(self.qo100_section)
-        qo100.setContentsMargins(0, 0, 0, 0)
-        qo100.setSpacing(px(10))
-        label(qo100, "caption", "SPECTRUM")
+        # A grid of equal cards; each band shows only the cards that apply to it.
+        self.grid = QGridLayout()
+        self.grid.setSpacing(px(16))
+        self.grid.setColumnStretch(0, 1)
+        self.grid.setColumnStretch(1, 1)
+        layout.addLayout(self.grid)
+
+        self.spectrum_card, card, _ = self.card("spectrum", "Spectrum",
+            "Local scan: your own stick sweeps the band, no internet needed. "
+            "BATC: the BATC web spectrum of the whole transponder.")
         row = QHBoxLayout()
         row.setSpacing(px(8))
         self.source_buttons = {}
@@ -404,77 +495,91 @@ class SettingsPage(QWidget):
             widget = QPushButton(text)
             widget.setCheckable(True)
             widget.setFocusPolicy(Qt.NoFocus)
-            widget.setFixedSize(px(200), px(60))
+            widget.setFixedHeight(px(56))
             widget.clicked.connect(lambda _, source=source: self.set_source(source))
             row.addWidget(widget)
             self.source_buttons[source] = widget
-        row.addStretch()
-        qo100.addLayout(row)
-        qo100.addSpacing(px(6))
+        card.insertLayout(1, row)
 
-        # The LNB is measured on the beacon rather than entered by hand.
-        label(qo100, "caption", "LNB OSCILLATOR")
-        row = QHBoxLayout()
-        row.setSpacing(px(12))
-        self.lnb = label(row, "big")
-        self.lnb.setFixedWidth(px(230))
-        self.calibrate_button = button(row, "", self.calibrate)
-        self.calibrate_button.setFixedSize(px(200), px(60))
-        self.undo = QPushButton("UNDO")
-        self.undo.setFocusPolicy(Qt.NoFocus)
-        self.undo.setFixedSize(px(110), px(60))
-        self.undo.clicked.connect(self.undo_calibration)
-        self.undo.hide()
-        row.addWidget(self.undo)
-        row.addStretch()
-        qo100.addLayout(row)
-        self.calibration_note = label(qo100, "value")
-        self.calibration_note.setWordWrap(True)
-        qo100.addSpacing(px(10))
-
-        layout.addWidget(self.qo100_section)
-
-        # Downconverter bands: the LO the receive frequency is shifted by.
-        self.converter_section = QWidget()
-        converter = QVBoxLayout(self.converter_section)
-        converter.setContentsMargins(0, 0, 0, px(10))
-        converter.setSpacing(px(8))
-        label(converter, "caption", "CONVERTER LO")
-        self.lo_row = QHBoxLayout()
-        self.lo_row.setSpacing(px(8))
-        self.lo_row.addStretch()
-        converter.addLayout(self.lo_row)
-        self.lo_note = label(converter, "value")
-        layout.addWidget(self.converter_section)
-        self.lo_buttons = {}
-        self.lo_mhz = 0
-        self.band = None
-
-        label(layout, "caption", "RF GAIN")
+        self.gain_card, card, _ = self.card("gain", "RF gain",
+            "Lower it if strong signals overload the stick, raise it for weak stations.")
         row = QHBoxLayout()
         row.setSpacing(px(8))
         for text, step in (("−", -1), ("+", 1)):
             widget = QPushButton(text, objectName="symbol")
             widget.setFocusPolicy(Qt.NoFocus)
-            widget.setFixedSize(px(110), px(60))
+            widget.setFixedSize(px(96), px(56))
             widget.clicked.connect(lambda _, step=step: self.step_gain(step))
             row.addWidget(widget)
             if step < 0:
                 self.gain = label(row, "big")
                 self.gain.setAlignment(Qt.AlignCenter)
-                self.gain.setFixedWidth(px(160))
-        row.addStretch()
-        layout.addLayout(row)
-        label(layout, "caption", "Changes are applied when you press DONE.")
+        row.setStretchFactor(self.gain, 1)
+        card.insertLayout(1, row)
+
+        # The LNB is measured on the beacon rather than entered by hand.
+        self.lnb_card, card, _ = self.card("dish", "LNB oscillator",
+            "Measured on the QO-100 beacon: five locks, deliberately detuned.")
+        self.lnb = label(card, "big")
+        card.insertWidget(1, self.lnb)
+        row = QHBoxLayout()
+        row.setSpacing(px(8))
+        self.calibrate_button = button(row, "", self.calibrate)
+        self.calibrate_button.setFixedHeight(px(56))
+        self.undo = QPushButton("UNDO")
+        self.undo.setFocusPolicy(Qt.NoFocus)
+        self.undo.setFixedSize(px(100), px(56))
+        self.undo.clicked.connect(self.undo_calibration)
+        self.undo.hide()
+        row.addWidget(self.undo)
+        card.insertLayout(2, row)
+        self.calibration_note = label(card, "value")
+        self.calibration_note.setWordWrap(True)
+        card.insertWidget(3, self.calibration_note)
+
+        # Downconverter bands: the LO the receive frequency is shifted by.
+        self.converter_card, card, self.lo_note = self.card("mixer", "Converter LO", "")   # the hint shows RF − LO
+        self.lo_grid = QGridLayout()
+        self.lo_grid.setSpacing(px(8))
+        card.insertLayout(1, self.lo_grid)
+
+        self.about_card, card, _ = self.card("about", "About · version " + version, credits)
+        quit_button = button(None, "QUIT TO DESKTOP", self.quit, "danger")
+        quit_button.setFixedHeight(px(56))
+        card.addWidget(quit_button)
         layout.addStretch()
 
-        bottom = QHBoxLayout()
-        about = QLabel(credits, objectName="caption")
-        about.setWordWrap(True)
-        bottom.addWidget(about, 1)
-        quit_button = button(bottom, "QUIT TO\nDESKTOP", self.quit, "danger")
-        quit_button.setFixedSize(px(170), px(64))
-        layout.addLayout(bottom)
+    def card(self, icon, title, hint):
+        # Title row with a symbol, content inserted from index 1, then the hint at the bottom.
+        frame = QFrame(objectName="panel")
+        lines = QVBoxLayout(frame)
+        lines.setContentsMargins(px(16), px(12), px(16), px(14))
+        lines.setSpacing(px(10))
+        head = QHBoxLayout()
+        head.setSpacing(px(8))
+        symbol = QLabel()
+        symbol.setPixmap(card_icon(icon).pixmap(px(22), px(22)))
+        head.addWidget(symbol)
+        label(head, "cardTitle", title)
+        head.addStretch()
+        lines.addLayout(head)
+        lines.addStretch()
+        note = label(lines, "caption", hint)
+        note.setWordWrap(True)
+        frame.hide()
+        return frame, lines, note
+
+    def arrange(self, band):
+        cards = ([self.spectrum_card, self.lnb_card, self.gain_card] if band.via_lnb else
+                 [self.gain_card, self.converter_card] if band.converter_los else [self.gain_card]) + [self.about_card]
+        for frame in (self.spectrum_card, self.lnb_card, self.gain_card, self.converter_card, self.about_card):
+            self.grid.removeWidget(frame)
+            frame.hide()
+        for index, frame in enumerate(cards):
+            row, column = divmod(index, 2)
+            last_alone = index == len(cards) - 1 and column == 0
+            self.grid.addWidget(frame, row, column, 1, 2 if last_alone else 1)
+            frame.show()
 
     def set_lo(self, lo_mhz):
         self.lo_mhz = lo_mhz
@@ -490,8 +595,7 @@ class SettingsPage(QWidget):
 
     def load(self, lnb_mhz, gain_db, source, band, lo_mhz):
         self.title.setText("Settings · " + band.name)
-        self.qo100_section.setVisible(band.via_lnb)
-        self.converter_section.setVisible(bool(band.converter_los))
+        self.arrange(band)
         self.band = band
         for widget in self.lo_buttons.values():
             widget.deleteLater()
@@ -500,9 +604,9 @@ class SettingsPage(QWidget):
             widget = QPushButton("%g MHz\n%s" % (lo, name))
             widget.setCheckable(True)
             widget.setFocusPolicy(Qt.NoFocus)
-            widget.setFixedSize(px(190), px(64))
+            widget.setFixedHeight(px(60))
             widget.clicked.connect(lambda _, lo=lo: self.set_lo(lo))
-            self.lo_row.insertWidget(self.lo_row.count() - 1, widget)
+            self.lo_grid.addWidget(widget, len(self.lo_buttons) // 2, len(self.lo_buttons) % 2)
             self.lo_buttons[lo] = widget
         if band.converter_los:
             self.set_lo(lo_mhz)

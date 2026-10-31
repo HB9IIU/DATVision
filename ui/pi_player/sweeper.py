@@ -3,7 +3,7 @@ import statistics
 import subprocess
 import threading
 from PyQt5.QtCore import QObject, pyqtSignal
-from receiver import exited
+from receiver import exited, end_with_player
 
 # The spectrum view and the signal finder work on the BATC scale (16-bit values).
 # Put the local noise floor where BATC's sits and give each dB a fixed height.
@@ -36,7 +36,7 @@ class Sweeper(QObject):
         self.stop()
         self.generation += 1
         process = subprocess.Popen([str(self.root / "build/linux/rtl_sweep"), "%d" % start_hz, "%d" % end_hz, "%.1f" % gain_db],
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.root)
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.root, preexec_fn=end_with_player)
         self.process = process
         threading.Thread(target=self.read, args=(process, self.generation), daemon=True).start()
         threading.Thread(target=self.log, args=(process,), daemon=True).start()

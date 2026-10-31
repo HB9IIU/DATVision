@@ -1,7 +1,15 @@
 """Local Pi capture/decoder lifecycle. The transport stream stays on this Pi."""
+import ctypes
+import signal
 import socket
 import subprocess
 import threading
+
+
+def end_with_player():
+    # Runs in each child before it starts: the kernel sends it SIGTERM when the
+    # player ends in any way, so no receiver is left holding the stick.
+    ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGTERM)   # PR_SET_PDEATHSIG
 from PyQt5.QtCore import QObject, pyqtSignal
 from ts_info import TsInfo
 
@@ -10,9 +18,10 @@ class Receiver(QObject):
     status = pyqtSignal(int, str)
     failed = pyqtSignal(int, str)
 
-    def __init__(self, root):
+    def __init__(self, root, realtime=False):
         super().__init__()
         self.root = root
+        self.realtime = realtime   # slow Pi: drop a frame when behind rather than lose stick samples
         self.session = None
         self.generation = 0
         self.stuck = []
@@ -35,12 +44,13 @@ class Receiver(QObject):
         self.session = session
         try:
             source = subprocess.Popen([str(self.root / "build/linux/rtl_iq"), str(frequency), str(rate), "%.1f" % gain_db],
-                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.root)
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.root, preexec_fn=end_with_player)
             session["processes"].append(source)
             decoder = subprocess.Popen([str(self.root / "build/linux/datvrx"), "-", "--rate", str(rate / 1e6),
                                         "--format", "cu8", "--rs", str(signal.symbol_rate_ks / 1000),
-                                        "--std", "0", "--roll", "0.25", "--no-realtime", "--cells", "256"],
-                                       stdin=source.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.root)
+                                        "--std", "0", "--roll", "0.25", "--realtime" if self.realtime else "--no-realtime", "--cells", "256"],
+                                       stdin=source.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.root,
+                                       preexec_fn=end_with_player)
             session["processes"].append(decoder)
             source.stdout.close()
         except Exception:

@@ -6,6 +6,7 @@ import fcntl
 import json
 from pathlib import Path
 import re
+import signal
 import socket
 import sys
 import time
@@ -47,12 +48,14 @@ STYLE = """
     QLabel#value { color: #dde8f1; font-size: 13px; }
     QLabel#big { color: #dde8f1; font-size: 26px; font-weight: 600; }
     QLabel#caption { font-size: 11px; }
+    QLabel#cardTitle { color: #dde8f1; font-size: 15px; font-weight: 700; }
     QLabel#dnumber { font-size: 17px; font-weight: 700; }
     QLabel#title { color: #dde8f1; font-size: 24px; font-weight: 600; }
     QPushButton { background: #1b3140; color: #dde8f1; border: 1px solid #29485c; border-radius: 6px;
                   font-size: 14px; font-weight: 600; min-height: 48px; }
     QPushButton#symbol { font-size: 26px; }
     QPushButton#danger { color: #ff9b9b; border-color: #8a3b3b; }
+    QPushButton#accent { background: #1f5a44; border-color: #50d7a0; }
     QPushButton#band { min-height: 116px; }
     QLabel#bandName { color: #dde8f1; font-size: 28px; font-weight: 700; }
     QLabel#bandRange { color: #dde8f1; font-size: 15px; }
@@ -62,6 +65,18 @@ STYLE = """
     QPushButton:pressed { background: #31556c; }
     QPushButton:checked { background: #1f5a44; border-color: #50d7a0; }
 """
+
+
+def pi_model():
+    try:
+        return Path("/proc/device-tree/model").read_text().strip("\0")
+    except OSError:
+        return ""
+
+
+# A Pi 4 only just keeps up with 1500 kS/s: a receiver that drops a frame when behind,
+# instead of losing stick samples, keeps the beacon decoding there.
+SLOW_PI = "Raspberry Pi 4" in pi_model()
 
 
 def stick_present():
@@ -88,7 +103,7 @@ class Player(QMainWindow):
         self.gains = {}   # RF gain per band
         self.los = {}     # chosen converter LO per band
         self.indicator = "eye"
-        self.spectrum_source = "local"
+        self.spectrum_source = "batc"   # QO-100 default; LOCAL scans with the stick
         try:
             settings = json.loads(self.settings_path.read_text())
             self.volume = max(0, min(100, int(settings.get("volume", 40))))
@@ -102,7 +117,7 @@ class Player(QMainWindow):
             self.los = {key: float(value) for key, value in settings.get("los", {}).items()
                         if key in bands.BY_KEY and float(value) in bands.BY_KEY[key].converter_los}
             self.indicator = "constellation" if settings.get("indicator") == "constellation" else "eye"
-            self.spectrum_source = "batc" if settings.get("spectrum") == "batc" else "local"
+            self.spectrum_source = "local" if settings.get("spectrum") == "local" else "batc"
         except (OSError, ValueError, TypeError):
             pass
         self.current = None
@@ -157,7 +172,9 @@ class Player(QMainWindow):
         self.spectrum = Spectrum()
         self.spectrum.setFixedHeight(px(140))
         self.surface_layout.addWidget(self.spectrum)
-        self.settings = SettingsPage(CREDITS)
+        version_file = root / "VERSION"
+        version = version_file.read_text().strip() if version_file.exists() else "development"
+        self.settings = SettingsPage(CREDITS, version)
         self.pages.addWidget(self.settings)
         self.bands_page = BandsPage(bands.BANDS, CREDITS)
         self.pages.addWidget(self.bands_page)
@@ -173,7 +190,7 @@ class Player(QMainWindow):
         self.gain_timer.setSingleShot(True)
         self.gain_timer.timeout.connect(self.apply_gain)
 
-        self.receiver = Receiver(root)
+        self.receiver = Receiver(root, realtime=SLOW_PI)
         # LOCAL spectrum: the stick sweeps the band until a signal is tapped.
         self.sweeper = Sweeper(root)
         self.sweep_id = 0
@@ -195,6 +212,7 @@ class Player(QMainWindow):
         self.controls.stop_start.connect(self.stop_start)
         self.controls.bands.connect(self.open_bands)
         self.controls.settings.connect(self.open_settings)
+        self.controls.quit.connect(self.close)
         self.settings.done.connect(self.close_settings)
         self.settings.calibrate.connect(self.start_calibration)
         self.settings.quit.connect(self.close)
@@ -223,6 +241,7 @@ class Player(QMainWindow):
         screen = self.screen()
         print("DISPLAY: %dx%d, %.2f Hz, scale %.2f%s" % (screen.size().width(), screen.size().height(), screen.refreshRate(),
                                                        ui_scale.scale, " · preview" if preview else ""), flush=True)
+        print("PI: %s%s" % (pi_model() or "unknown", " · real-time receiver" if SLOW_PI else ""), flush=True)
         QTimer.singleShot(200, lambda: self.spectrum.set_source(self.effective_source()))
         QTimer.singleShot(500, self.start_default)
 
@@ -451,7 +470,14 @@ class Player(QMainWindow):
             if self.effective_source() == "batc":
                 self.show_placeholder("Reception ended\n\nPress START or tap a signal")
 
+    def log_video(self):
+        # Every 5 s while watching: what VLC decodes, shows and drops (diagnosis on slower Pis).
+        stats = self.video.stats() if self.current else None
+        if stats and int(time.monotonic()) % 5 == 0:
+            print("VIDEO: decoded %d, displayed %d, lost %d" % stats, flush=True)
+
     def tick(self):
+        self.log_video()
         if self.waiting_for_stick:
             # Give a replugged stick two seconds to settle before opening it.
             self.stick_seen = self.stick_seen + 1 if stick_present() else 0
@@ -752,6 +778,9 @@ def main():
             QMessageBox.information(None, "RTL DATV", "The Pi player is already running.")
             return 1
     player = Player(root, preview, window)
+    # Stopped from outside (an update, a shutdown): close like QUIT, which stops the receiver.
+    signal.signal(signal.SIGTERM, lambda *args: player.close())
+    signal.signal(signal.SIGINT, lambda *args: player.close())
     return app.exec_()
 
 

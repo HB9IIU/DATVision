@@ -17,8 +17,8 @@ The video sits between two columns that use the letterbox space.
   station/service and provider name from the transport stream's SDT, frequency,
   symbol rate, mode, Es/N0 and a MiniTioune-style D number: the margin above the
   approximate quasi-error-free threshold for that mode, green from 2 dB, amber
-  from 0, red below. The bar shows D around a centre tick (the threshold): right
-  for margin, red to the left when short, full at 8 dB. Then video codec and size,
+  from 0, red below. The bar is a gauge of D: empty at the decoding limit, full at
+  8 dB of reserve, a short red stub below the limit. Then video codec and size,
   audio codec, bad frames and synchronisation losses since tuning.
 - **Bottom of the left column: magic eye or constellation; tap to alternate.**
   The magic eye is a drawn EM34/6E5-style tube: cold when stopped, lit with the
@@ -47,6 +47,10 @@ The video sits between two columns that use the letterbox space.
   Settings) and tunes RF − LO, e.g. 5705 MHz at 505 MHz. Bands wider than
   10 MHz (23 cm, 6 cm) zoom to 3 MHz on the first tap; the second tunes.
   QUIT TO DESKTOP and the credits are also on this page.
+- The right column ends with ⚙ (Settings, where the band has any) and ⏻ (quit to
+  the desktop): the first tap turns it into QUIT?, a second tap within 3 s quits.
+- New installations start with the BATC spectrum on QO-100 (straight to the
+  beacon); LOCAL is chosen in Settings and remembered.
 - BATC spectrum across the bottom, without markers. A tap near a carrier snaps
   to it; the tuned signal is filled green, the others stay amber.
 - If the RTL-SDR stick is missing or drops off USB, the video area says so in
