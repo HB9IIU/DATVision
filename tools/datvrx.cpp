@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
@@ -50,6 +51,9 @@ void usage() {
             "  --secs s         stop after this much signal\n"
             "  --realtime       live input: drop frames when the computer is behind (default for standard input)\n"
             "  --no-realtime    wait for the decoder instead (default for files)\n"
+            "  --cells n        four times a second, the last n symbols (at most 2048) on a \"datvrx cells\" status line\n"
+            "                   in hex: I then Q per symbol, each a byte 128 + 64 x value (for constellation displays);\n"
+            "                   while locked also a \"datvrx carrier\" line with the tracked carrier offset in Hz\n"
             "  --quiet          no status lines\n",
             dvbsMinAutoSymbolRate(2.4e6) / 1e3);
 }
@@ -63,7 +67,7 @@ int main(int argc, char** argv) {
     std::string in = "-", out = "-", format;
     double rate = 0, rs = 0, roll = 0, secsMax = 0, carrierKhz = 0;
     bool haveCarrier = false, quiet = false;
-    int stdHint = 0, isi = -1, pls = -1, realtime = -1;
+    int stdHint = 0, isi = -1, pls = -1, realtime = -1, cellsOut = 0;
     bool haveInput = false;
     for (int i = 1; i < argc; i++) {
         const std::string a = argv[i];
@@ -83,6 +87,7 @@ int main(int argc, char** argv) {
         else if (a == "--secs") secsMax = atof(next().c_str());
         else if (a == "--realtime") realtime = 1;
         else if (a == "--no-realtime") realtime = 0;
+        else if (a == "--cells") cellsOut = std::max(0, std::min(2048, atoi(next().c_str())));
         else if (a == "--quiet") quiet = true;
         else if (a == "-h" || a == "--help") { usage(); return 0; }
         else if (!haveInput && (a == "-" || a[0] != '-')) { in = a; haveInput = true; }
@@ -146,7 +151,8 @@ int main(int argc, char** argv) {
     std::vector<unsigned char> raw(block * bps);
     std::vector<cf32> x(block);
     size_t carry = 0;   // bytes of an incomplete sample left from the previous read (pipes deliver any length)
-    uint64_t total = 0, seq = 0, nextReport = (uint64_t)(rate * 1e6);
+    uint64_t total = 0, seq = 0, nextReport = (uint64_t)(rate * 1e6), nextCells = (uint64_t)(rate * 1e6 / 4);
+    std::string cellsLine;
     DvbsTelemetry tel;
     if (!quiet)
         fprintf(stderr, "datvrx: %s, %.3f Msps %s, %s; searching (symbol rate %s)\n", fromStdin ? "standard input" : in.c_str(), rate, format.c_str(),
@@ -171,6 +177,22 @@ int main(int argc, char** argv) {
         if (total >= nextReport) {
             nextReport += (uint64_t)(rate * 1e6);
             if (!quiet) fprintf(stderr, "datvrx [%6.1f s] %s, TS packets %llu\n", (double)total / (rate * 1e6), dvbsSummary(tel).c_str(), (unsigned long long)packets.load());
+        }
+        if (cellsOut && total >= nextCells) {
+            nextCells += (uint64_t)(rate * 1e6 / 4);
+            if (!quiet && tel.state > 0 && !tel.cells.empty()) {
+                static const char kHex[] = "0123456789abcdef";
+                const size_t count = std::min(tel.cells.size(), (size_t)cellsOut);
+                cellsLine = "datvrx cells ";
+                for (size_t i = tel.cells.size() - count; i < tel.cells.size(); i++)
+                    for (float v : {tel.cells[i].real(), tel.cells[i].imag()}) {
+                        const int b = std::max(0, std::min(255, (int)std::lround(128 + 64 * v)));
+                        cellsLine += kHex[b >> 4];
+                        cellsLine += kHex[b & 15];
+                    }
+                fprintf(stderr, "%s\n", cellsLine.c_str());
+            }
+            if (!quiet && tel.state == 2) fprintf(stderr, "datvrx carrier %+.1f\n", tel.cfoHz);
         }
         if (secsMax > 0 && (double)total / (rate * 1e6) >= secsMax) break;
     }

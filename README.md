@@ -1,8 +1,12 @@
 # DATV receiver — Windows trials, then Raspberry Pi
 
+**Standalone Windows monitor:** start `Windows DATV Monitor.cmd` for the floating
+Pi-style layout with a local SDR. See [Windows monitor guide](docs/WINDOWS_MONITOR.md).
+
 Standalone DVB-S/DVB-S2 receiver derived from OnAir, with existing S2X code.
 Reads SDR I/Q samples from a recording or pipe and writes MPEG transport-stream
-packets for playback with ffplay or VLC. There is no GUI or built-in SDR driver.
+packets for playback with ffplay or VLC. The Windows monitor adds a graphical
+interface and RTL-SDR capture; the receiver command-line tool stays independent.
 
 ```text
 rtl_sdr / I/Q recording -> datvrx -> MPEG-TS file / player

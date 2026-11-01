@@ -5,6 +5,7 @@ CMakeUserPresets.json
 captures/
 test-output/
 player-settings.json
+windows-monitor-settings.json
 ui/**/bin/
 ui/**/obj/
 milestones/

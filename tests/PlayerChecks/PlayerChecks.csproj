@@ -9,5 +9,8 @@
   <ItemGroup>
     <Compile Include="../../ui/DatvRx.Player/Spectrum.cs" Link="Spectrum.cs" />
     <Compile Include="../../ui/DatvRx.Player/Receiver.cs" Link="Receiver.cs" />
+    <Compile Include="../../ui/DatvRx.Player/TransportInfo.cs" Link="TransportInfo.cs" />
+    <Compile Include="../../ui/DatvRx.Player/MonitorModels.cs" Link="MonitorModels.cs" />
+    <Compile Include="../../ui/DatvRx.Player/LocalSweep.cs" Link="LocalSweep.cs" />
   </ItemGroup>
 </Project>
