@@ -2,7 +2,7 @@
 import math
 import time
 from PyQt5.QtCore import Qt, pyqtSignal, QPointF, QRectF, QSize, QTimer
-from PyQt5.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
+from PyQt5.QtGui import QColor, QFontMetrics, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PyQt5.QtNetwork import QTcpSocket
 from PyQt5.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QSizePolicy,
                              QStackedWidget, QScrollArea, QScroller)
@@ -174,8 +174,7 @@ class InfoPanel(QFrame):
         self.indicator_changed.emit(name)
 
     def show_state(self, text, color):
-        self.state.setText(text)
-        self.state.setStyleSheet("color: %s;" % color)
+        fit_text(self.state, text, 17, "color: %s;" % color)   # REACQUIRING is long
 
     def reset(self, signal):
         self.frequency.setText("%.3f MHz" % signal.center_mhz if signal else "")
@@ -187,7 +186,7 @@ class InfoPanel(QFrame):
         self.eye.show_quality(signal is not None, False, None, None)
 
     def show_reception(self, mode, esn0, required, bad, lost):
-        self.mode.setText(mode)
+        fit_text(self.mode, mode, 13)   # e.g. DVB-S2X QPSK 4/15
         self.esn0.setText("—" if esn0 is None else "%.1f dB" % esn0)
         self.bar.set_value(esn0, required)
         if esn0 is None or required is None:
@@ -228,6 +227,20 @@ def speaker_icon(volume, muted):
             p.drawArc(QRectF(32 - radius, 32 - radius, 2 * radius, 2 * radius), -45 * 16, 90 * 16)
     p.end()
     return QIcon(pixmap)
+
+
+def fit_text(widget, text, size, extra=""):
+    """Show text in the label, shrinking its font (down to 70 %) so it fits the column."""
+    widget.setText(text)
+    width = widget.contentsRect().width()
+    font = widget.font()
+    pixels = px(size)
+    while width > 20 and pixels > px(size) * 0.7:
+        font.setPixelSize(pixels)
+        if QFontMetrics(font).horizontalAdvance(text) <= width:
+            break
+        pixels -= 1
+    widget.setStyleSheet("font-size: %dpx; %s" % (pixels, extra))
 
 
 def symbol_icon(kind, color):
