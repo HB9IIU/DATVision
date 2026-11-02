@@ -5,6 +5,7 @@ CMakeUserPresets.json
 captures/
 test-output/
 player-settings.json
+windows-monitor-settings.json
 ui/**/bin/
 ui/**/obj/
 milestones/
@@ -12,3 +13,6 @@ pi-player-settings.json
 __pycache__/
 *.pyc
 Record/
+dist/
+tests/**/bin/
+tests/**/obj/

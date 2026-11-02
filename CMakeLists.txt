@@ -15,10 +15,12 @@ if(DATVRX_RTL)
   find_path(RTLSDR_INCLUDE_DIR rtl-sdr.h REQUIRED)
   find_library(RTLSDR_LIBRARY NAMES rtlsdr REQUIRED)
   # rtl_iq: I/Q pipe source for datvrx; rtl_sweep: stitched spectrum for the local spectrum view
+  find_package(Threads REQUIRED)
   foreach(tool rtl_iq rtl_sweep)
     add_executable(${tool} tools/${tool}.cpp)
     target_include_directories(${tool} PRIVATE ${RTLSDR_INCLUDE_DIR})
-    target_link_libraries(${tool} PRIVATE ${RTLSDR_LIBRARY})
+    # Threads: the --watch-stdin stop used by the Windows app.
+    target_link_libraries(${tool} PRIVATE ${RTLSDR_LIBRARY} Threads::Threads)
     # A release carries the V4 driver next to the tools; look there first.
     set_target_properties(${tool} PROPERTIES BUILD_RPATH "\$ORIGIN")
     if(WIN32)

@@ -19,6 +19,9 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include <atomic>
+#include <cstring>
+#include <thread>
 
 namespace {
 
@@ -30,7 +33,7 @@ constexpr int kBlock = 16384;         // bytes per synchronous read (8192 sample
 constexpr int kSettleBlocks = 4;      // read and dropped after each retune (about 14 ms)
 constexpr int kCaptureBlocks = 16;    // averaged per step (about 55 ms)
 
-volatile std::sig_atomic_t stopping = 0;
+std::atomic<bool> stopping{false};
 void requestStop(int) { stopping = 1; }
 
 using cf = std::complex<float>;
@@ -79,7 +82,7 @@ bool measure(rtlsdr_dev_t* device, std::vector<double>& power, const std::vector
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 4) {
+    if (argc != 4 && !(argc == 5 && std::strcmp(argv[4], "--watch-stdin") == 0)) {
         std::fprintf(stderr, "usage: rtl_sweep start_Hz end_Hz gain_dB\n");
         return 1;
     }
@@ -88,6 +91,7 @@ int main(int argc, char** argv) {
     if (!(start > 0) || !(end > start)) return 1;
     std::signal(SIGINT, requestStop);
     std::signal(SIGTERM, requestStop);
+    if (argc == 5) std::thread([] { while (std::getchar() != EOF) {} stopping = true; }).detach();
 #ifdef SIGPIPE
     std::signal(SIGPIPE, SIG_IGN);  // a closed reader is seen by fflush instead
 #endif
