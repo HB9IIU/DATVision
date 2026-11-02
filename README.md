@@ -1,6 +1,8 @@
+<p align="center"><img src="assets/branding/datvision-wordmark.png" alt="DATVision by HB9IIU" width="600"></p>
+
 # DATV receiver — Windows trials, then Raspberry Pi
 
-**Standalone Windows monitor:** start `Windows DATV Monitor.cmd` for the floating
+**Standalone Windows monitor:** start `DATVision.cmd` for the floating
 Pi-style layout with a local SDR. See [Windows monitor guide](docs/WINDOWS_MONITOR.md).
 
 Standalone DVB-S/DVB-S2 receiver derived from OnAir, with existing S2X code.

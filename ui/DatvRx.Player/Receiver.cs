@@ -25,16 +25,54 @@ public sealed class LocalReceiver : IReceiverBackend
     private readonly string _remoteHost;
     private readonly SemaphoreSlim _gate = new(1);
     private Session _session;
+    public string UdpDestination { get; set; }
     public event Action<string> Status;
     public event Action<string> VideoInfo;
     public event Action<StreamService> ServiceInfo;
     public Process PlayerProcess => _session?.Player;
 
+    private readonly object _recordGate = new();
+    private FileStream _recordFile;
+    private long _lastTransportTick;
+    public long LastTransportTick => Interlocked.Read(ref _lastTransportTick);
+    public bool IsRecording { get { lock (_recordGate) return _recordFile != null; } }
+    public void StartRecording(string path)
+    {
+        lock (_recordGate)
+        {
+            if (_session?.Decoder == null || _session.Stop.IsCancellationRequested)
+                throw new InvalidOperationException("Tune a live station before recording.");
+            if (_recordFile != null) throw new InvalidOperationException("Already recording.");
+            _recordFile = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+        }
+    }
+    public void StopRecording()
+    {
+        lock (_recordGate)
+        {
+            var file = _recordFile; _recordFile = null;
+            file?.Dispose();
+        }
+    }
+    private void RecordTs(byte[] block)
+    {
+        lock (_recordGate)
+        {
+            try { _recordFile?.Write(block); }
+            catch (IOException ex)
+            {
+                StopRecording();
+                Status?.Invoke("Recording failed: " + ex.Message);
+            }
+        }
+    }
+
     public LocalReceiver(string root, string remoteHost = null)
     {
         _root = root;
         _remoteHost = remoteHost;
-        _msysBin = Path.Combine(Environment.GetEnvironmentVariable("DATVRX_MSYS_ROOT") ?? @"C:\msys64", "ucrt64/bin");
+        string bundled = Path.Combine(root, "runtime/bin");
+        _msysBin = Directory.Exists(bundled) ? bundled : Path.Combine(Environment.GetEnvironmentVariable("DATVRX_MSYS_ROOT") ?? @"C:\msys64", "ucrt64/bin");
     }
 
     public static string Validate(TuneRequest request)
@@ -57,6 +95,7 @@ public sealed class LocalReceiver : IReceiverBackend
         try
         {
             await StopCoreAsync();
+            Interlocked.Exchange(ref _lastTransportTick, 0);
             int sampleRate = request.SymbolRateKs >= 1250 ? 2560000 : 2400000;
             long frequency = (long)Math.Round((request.RfMhz - request.LnbMhz) * 1e6);
             var session = new Session(Path.Combine(_root, "test-output"));
@@ -67,6 +106,12 @@ public sealed class LocalReceiver : IReceiverBackend
             }
             try
             {
+                if (UdpDestination != null)
+                {
+                    try { session.Udp = new UdpTsSender(UdpDestination, Report); }
+                    catch (Exception ex) when (ex is System.Net.Sockets.SocketException or ArgumentException)
+                    { Report("UDP streaming: " + ex.Message); }
+                }
                 // Start consumers first, then USB. Each relay drains its source independently.
                 session.Player = Start(Path.Combine(_msysBin, "ffplay.exe"),
                     ["-hide_banner", "-loglevel", "info", "-nostats", "-autoexit",
@@ -122,6 +167,13 @@ public sealed class LocalReceiver : IReceiverBackend
             RedirectStandardInput = input, RedirectStandardOutput = output, RedirectStandardError = true
         };
         info.Environment["PATH"] = _msysBin + ";" + Environment.GetEnvironmentVariable("PATH");
+        // ffplay creates its SDL window before the UI can reparent it. Start
+        // outside the desktop so the standalone window cannot flash on screen.
+        if (Path.GetFileName(executable).Equals("ffplay.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            info.ArgumentList.Add("-left"); info.ArgumentList.Add("-32000");
+            info.ArgumentList.Add("-top"); info.ArgumentList.Add("-32000");
+        }
         foreach (string argument in arguments) info.ArgumentList.Add(argument);
         return Process.Start(info) ?? throw new IOException("Could not start " + executable);
     }
@@ -170,6 +222,9 @@ public sealed class LocalReceiver : IReceiverBackend
                     int count = await session.Decoder.StandardOutput.BaseStream.ReadAsync(block, session.Stop.Token);
                     if (count == 0) break;
                     if (count != block.Length) Array.Resize(ref block, count);
+                    Interlocked.Exchange(ref _lastTransportTick, Environment.TickCount64);
+                    session.Udp?.Feed(block);
+                    RecordTs(block);
                     service.Feed(block);
                     await queue.Writer.WriteAsync(block, session.Stop.Token);
                 }
@@ -198,9 +253,10 @@ public sealed class LocalReceiver : IReceiverBackend
                 .Where(process => process != null).Select(process => process.WaitForExitAsync(session.Stop.Token)));
             if (!session.Stop.IsCancellationRequested && _session == session)
             {
-                Status?.Invoke("Reception stopped. Check USB connection or press Start.");
+                Status?.Invoke("Receiver pipeline stopped. Check the RTL-SDR connection or select a station to retry.");
                 // Stop the whole owned pipeline if any stage fails.
                 session.Stop.Cancel();
+                StopRecording();
                 session.Kill();
             }
         }
@@ -219,6 +275,7 @@ public sealed class LocalReceiver : IReceiverBackend
         var session = _session;
         _session = null;
         if (session == null) return;
+        StopRecording();
         session.Stop.Cancel();
         if (_remoteHost == null && session.Source != null)
         {
@@ -234,6 +291,7 @@ public sealed class LocalReceiver : IReceiverBackend
             try { if (process != null) await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2)); } catch { }
         try { await Task.WhenAll(session.Tasks).WaitAsync(TimeSpan.FromSeconds(3)); } catch { }
         foreach (var process in new[] { session.Source, session.Decoder, session.Player }) process?.Dispose();
+        if (session.Udp != null) await session.Udp.DisposeAsync();
         session.Stop.Dispose();
         // WinUSB may take a moment to release a terminated capture's handle.
         await Task.Delay(250);
@@ -270,6 +328,7 @@ public sealed class LocalReceiver : IReceiverBackend
     private sealed class Session
     {
         public Process Source, Decoder, Player;
+        public UdpTsSender Udp;
         public CancellationTokenSource Stop { get; } = new();
         public List<Task> Tasks { get; } = [];
         public string LogDirectory { get; }

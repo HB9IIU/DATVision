@@ -81,3 +81,19 @@ public sealed record ReceptionReport(string Standard, string Modulation, string 
     };
     public double? Margin => Required is { } required ? EsN0 - required : null;
 }
+
+// Monotonic milliseconds supplied by the caller; independent of UI and wall clock.
+public sealed class SignalLossPolicy
+{
+    private long _lostAt;
+    public bool Waiting { get; private set; }
+    public void Reset(long now) { _lostAt = now; Waiting = true; }
+    public double Update(long now, bool receiving)
+    {
+        if (receiving) { Waiting = false; return 0; }
+        if (!Waiting) { _lostAt = now; Waiting = true; }
+        return Math.Max(0, (now - _lostAt) / 1000.0);
+    }
+    public static bool ShowNotice(double seconds) => seconds >= 3;
+    public static bool ResumeScan(double seconds, bool local) => local && seconds >= 30;
+}

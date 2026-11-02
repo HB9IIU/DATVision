@@ -6,7 +6,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <AssemblyName>DatvRx.Player</AssemblyName>
-    <Product>HB9IIU RTL DATV Player</Product>
+    <Product>DATVision by HB9IIU</Product>
+    <ApplicationIcon>../../assets/branding/datvision.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../assets/branding/datvision.ico" LogicalName="DATVision.Branding.Icon" />
+    <EmbeddedResource Include="../../assets/branding/datvision-wordmark.png" LogicalName="DATVision.Branding.Wordmark" />
+  </ItemGroup>
 </Project>

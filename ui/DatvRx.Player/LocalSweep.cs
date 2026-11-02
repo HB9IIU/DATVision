@@ -18,7 +18,8 @@ public sealed class LocalSweep(string root)
         var info = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true,
             RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = root };
         string msys = Environment.GetEnvironmentVariable("DATVRX_MSYS_ROOT") ?? @"C:\msys64";
-        info.Environment["PATH"] = Path.Combine(msys, "ucrt64/bin") + ";" + Environment.GetEnvironmentVariable("PATH");
+        string bundled = Path.Combine(root, "runtime/bin");
+        info.Environment["PATH"] = (Directory.Exists(bundled) ? bundled : Path.Combine(msys, "ucrt64/bin")) + ";" + Environment.GetEnvironmentVariable("PATH");
         foreach (string argument in new[] { Math.Round(start * 1e6).ToString(CultureInfo.InvariantCulture), Math.Round(end * 1e6).ToString(CultureInfo.InvariantCulture), gain.ToString(CultureInfo.InvariantCulture), "--watch-stdin" }) info.ArgumentList.Add(argument);
         var process = Process.Start(info) ?? throw new IOException("Could not start the SDR scanner");
         _process = process;
