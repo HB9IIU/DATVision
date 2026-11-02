@@ -298,7 +298,7 @@ def amplifier_icon():
     return QIcon(pixmap)
 
 
-CONTROL_HEIGHT = 52
+CONTROL_HEIGHT = 46
 
 
 class ControlPanel(QFrame):
@@ -311,13 +311,14 @@ class ControlPanel(QFrame):
     settings = pyqtSignal()
     gain_down = pyqtSignal()
     gain_up = pyqtSignal()
+    record = pyqtSignal()
     quit = pyqtSignal()
 
     def __init__(self):
         super().__init__(objectName="panel")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(px(8), px(8), px(8), px(8))
-        layout.setSpacing(px(6))
+        layout.setSpacing(px(5))
         # Groups of equal-height controls: audio, then reception, then pages.
         self.sound = button(layout, "", self.mute)
         self.pair(layout, self.quieter, self.louder)
@@ -343,6 +344,8 @@ class ControlPanel(QFrame):
         layout.addWidget(self.gain)
         self.beacon_button = button(layout, "BEACON", self.beacon)
         self.run = button(layout, "STOP", self.stop_start)
+        self.record_button = button(layout, "● REC", self.record)
+        self.show_recording(False, False)
         layout.addStretch()
         button(layout, "BANDS", self.bands)   # full video: tap the picture
         # Settings and quit as symbols, one above the other; quit asks for a second tap.
@@ -392,6 +395,11 @@ class ControlPanel(QFrame):
         self.sound.setIcon(speaker_icon(volume, muted))
         self.sound.setIconSize(QSize(px(38), px(38)))
         self.sound.setText("" if muted else " %d %%" % volume)
+
+    def show_recording(self, active, possible):
+        # Red while recording; the elapsed time did not fit the column.
+        self.record_button.setStyleSheet("background: #5a1f24; border-color: #ff6b6b; color: #ffd6d6;" if active else "")
+        self.record_button.setEnabled(active or possible)
 
     def show_running(self, running):
         self.run.setText("STOP" if running else "START")

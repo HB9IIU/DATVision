@@ -47,6 +47,12 @@ The video sits between two columns that use the letterbox space.
   Settings) and tunes RF − LO, e.g. 5705 MHz at 505 MHz. Bands wider than
   10 MHz (23 cm, 6 cm) zoom to 3 MHz on the first tap; the second tunes.
   QUIT TO DESKTOP and the credits are also on this page.
+- **● REC** records the received transport stream while a station is locked,
+  as in the Windows version: `Record/<callsign>/DATV-<date>-<time>.ts` in the
+  player folder (callsign from the service name, else `Unknown`). The button
+  turns red while recording; tap again to finish. Tuning elsewhere, STOP or quit
+  also finish it. It will not start below 500 MB free and stops itself below
+  300 MB, so the SD card never fills up.
 - The right column ends with ⚙ (Settings, where the band has any) and ⏻ (quit to
   the desktop): the first tap turns it into QUIT?, a second tap within 3 s quits.
 - New installations start with the BATC spectrum on QO-100 (straight to the

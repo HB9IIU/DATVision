@@ -24,6 +24,11 @@ class Receiver(QObject):
         self.realtime = realtime   # slow Pi: drop a frame when behind rather than lose stick samples
         self.session = None
         self.generation = 0
+        # TS recording: the delivery thread writes what it passes to the video too.
+        self.record_lock = threading.Lock()
+        self.record_file = None
+        self.record_path = None
+        self.recorded = 0
         self.stuck = []
 
     @property
@@ -80,12 +85,39 @@ class Receiver(QObject):
                     break
                 session["info"].feed(data)
                 udp.sendto(data, ("127.0.0.1", port))
+                if self.record_file is not None:
+                    with self.record_lock:
+                        if self.record_file is not None:
+                            self.record_file.write(data)
+                            self.recorded += len(data)
         except OSError:
             pass
         finally:
             udp.close()
             if not session["stop"].is_set():
                 self.failed.emit(session["id"], "Reception ended · tap a signal to retry")
+
+    @property
+    def recording(self):
+        return self.record_file is not None
+
+    def start_recording(self, path):
+        with self.record_lock:
+            if self.session is None or self.session["stop"].is_set():
+                raise RuntimeError("Tune a live station before recording.")
+            if self.record_file is not None:
+                raise RuntimeError("Already recording.")
+            self.record_file = open(path, "wb")
+            self.record_path, self.recorded = path, 0
+
+    def stop_recording(self):
+        """(path, bytes) of the finished recording, or None."""
+        with self.record_lock:
+            record_file, self.record_file = self.record_file, None
+            if record_file is None:
+                return None
+            record_file.close()
+            return self.record_path, self.recorded
 
     def stop(self):
         session, self.session = self.session, None

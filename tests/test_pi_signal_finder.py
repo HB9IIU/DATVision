@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ui/pi_player"))
 from signal_finder import START_MHZ, END_MHZ, find_signal, detect_signals, nearest_signal
-from ts_info import TsInfo
+from ts_info import TsInfo, callsign
 import calibration
 from sweeper import to_view_scale, NOISE_LEVEL, PER_DB, MIN_RISE
 
@@ -125,6 +125,15 @@ class BandChecks(unittest.TestCase):
         # Within the IF outputs Freddy gives: RX5808 450-600 MHz, KON-DWN-5560 at 5000 MHz 650-800 MHz.
         self.assertTrue(450 <= band.start_mhz - 5200 and band.end_mhz - 5200 <= 600)
         self.assertTrue(650 <= band.start_mhz - 5000 and band.end_mhz - 5000 <= 800)
+
+
+
+class CallsignChecks(unittest.TestCase):
+    def test_callsign_from_service_names(self):
+        self.assertEqual(callsign("HB9IIU"), "HB9IIU")
+        self.assertEqual(callsign("a71a"), "A71A")
+        self.assertEqual(callsign("DK0TE PlutoDVB"), "DK0TE")
+        self.assertEqual(callsign("QO-100 beacon"), "")
 
 
 if __name__ == "__main__":

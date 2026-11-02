@@ -26,6 +26,8 @@ from sweeper import Sweeper
 from spectrum import Spectrum
 from receiver import Receiver
 from video import Video
+import shutil
+from ts_info import callsign
 import mpv_video
 from panels import GREEN, AMBER, RED, DIM, GAINS, REQUIRED_ESN0, InfoPanel, ControlPanel, SettingsPage, BandsPage
 
@@ -55,7 +57,7 @@ STYLE = """
     QLabel#dnumber { font-size: 17px; font-weight: 700; }
     QLabel#title { color: #dde8f1; font-size: 24px; font-weight: 600; }
     QPushButton { background: #1b3140; color: #dde8f1; border: 1px solid #29485c; border-radius: 6px;
-                  font-size: 14px; font-weight: 600; min-height: 48px; }
+                  font-size: 14px; font-weight: 600; min-height: 40px; }
     QPushButton#symbol { font-size: 26px; }
     QPushButton#danger { color: #ff9b9b; border-color: #8a3b3b; }
     QPushButton#accent { background: #1f5a44; border-color: #50d7a0; }
@@ -66,6 +68,7 @@ STYLE = """
     QFrame#readout { background: #142838; border: 1px solid #29485c; border-radius: 6px; }
     QLabel#readoutText { color: #dde8f1; font-size: 13px; font-weight: 600; }
     QPushButton:pressed { background: #31556c; }
+    QPushButton:disabled { color: #4c6274; }
     QPushButton:checked { background: #1f5a44; border-color: #50d7a0; }
 """
 
@@ -221,6 +224,7 @@ class Player(QMainWindow):
         self.controls.bands.connect(self.open_bands)
         self.controls.settings.connect(self.open_settings)
         self.controls.quit.connect(self.close)
+        self.controls.record.connect(self.toggle_recording)
         self.settings.done.connect(self.close_settings)
         self.settings.calibrate.connect(self.start_calibration)
         self.settings.quit.connect(self.close)
@@ -385,6 +389,7 @@ class Player(QMainWindow):
             self.spectrum.frozen = True
             self.spectrum.update()
         stopping = time.monotonic()
+        self.end_recording()
         self.receiver.stop()
         stopped = time.monotonic()
         self.video.stop()
@@ -487,6 +492,9 @@ class Player(QMainWindow):
 
     def tick(self):
         self.log_video()
+        if self.receiver.recording and shutil.disk_usage(self.root).free < self.RECORD_STOP_FREE:
+            self.end_recording("SD card almost full")
+        self.show_recording()
         if self.waiting_for_stick:
             # Give a replugged stick two seconds to settle before opening it.
             self.stick_seen = self.stick_seen + 1 if stick_present() else 0
@@ -553,6 +561,7 @@ class Player(QMainWindow):
 
     def stop(self, scan=True):
         self.session_id = -1
+        self.end_recording()
         self.receiver.stop()
         self.video.stop()
         self.current = None
@@ -712,6 +721,43 @@ class Player(QMainWindow):
         elif self.sweeper.running:
             self.start_scan()
 
+    # ---- TS recording, as in the Windows version: Record/<callsign>/DATV-<time>.ts
+    RECORD_MIN_FREE = 500 * 2**20    # do not start below this
+    RECORD_STOP_FREE = 300 * 2**20   # stop below this: the SD card must never fill up
+
+    def toggle_recording(self):
+        if self.receiver.recording:
+            self.end_recording()
+            return
+        if not (self.current and self.locked_at is not None and self.lost_since is None):
+            self.spectrum.show_message("Tune and lock a station before recording")
+            return
+        folder = self.root / "Record" / (callsign(self.info.service.text()) or "Unknown")
+        if shutil.disk_usage(self.root).free < self.RECORD_MIN_FREE:
+            self.spectrum.show_message("Not enough free space on the SD card to record")
+            return
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / ("DATV-%s-%03d.ts" % (time.strftime("%Y%m%d-%H%M%S"), int(time.time() * 1000) % 1000))
+            self.receiver.start_recording(path)
+        except (OSError, RuntimeError) as error:
+            self.spectrum.show_message("Recording: %s" % error)
+            return
+        print("RECORD start %s" % path, flush=True)
+        self.show_recording()
+
+    def end_recording(self, reason=""):
+        result = self.receiver.stop_recording()
+        if result:
+            path, size = result
+            print("RECORD stop %s, %.1f MB%s" % (path, size / 2**20, ", " + reason if reason else ""), flush=True)
+            self.spectrum.show_message("%sSaved %s (%.0f MB)" % (reason + " · " if reason else "", path.name, size / 2**20))
+        self.show_recording()
+
+    def show_recording(self):
+        possible = bool(self.current and self.locked_at is not None and self.lost_since is None)
+        self.controls.show_recording(self.receiver.recording, possible)
+
     def open_bands(self):
         self.bands_page.show_current(self.band.key)
         self.pages.setCurrentWidget(self.bands_page)
@@ -753,6 +799,7 @@ class Player(QMainWindow):
         self.timer.stop()
         self.spectrum.stop()
         self.sweeper.stop()
+        self.end_recording()
         self.receiver.stop()
         if isinstance(self.video, mpv_video.MpvVideo):
             self.video.close()

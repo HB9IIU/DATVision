@@ -2,6 +2,8 @@
 
 Only single-packet sections are read; DATV tables normally fit in one packet.
 """
+import re
+
 VIDEO_TYPES = {0x01: "MPEG-1", 0x02: "MPEG-2", 0x10: "MPEG-4", 0x1B: "H.264", 0x24: "H.265", 0x33: "H.266"}
 AUDIO_TYPES = {0x03: "MPEG audio", 0x04: "MPEG audio", 0x0F: "AAC", 0x11: "AAC", 0x81: "AC-3", 0x87: "E-AC-3"}
 
@@ -72,6 +74,15 @@ class TsInfo:
                     return
                 j += 2 + section[j + 1]
             i += 5 + size
+
+
+CALLSIGN = re.compile(r"(?<![A-Z0-9])[A-Z0-9]{1,3}[0-9][A-Z]{1,4}(?![A-Z0-9])")
+
+
+def callsign(service_name):
+    """The callsign in a DVB service name, as the Windows version finds it; '' if none."""
+    found = CALLSIGN.search(service_name.upper())
+    return found.group(0) if found else ""
 
 
 def private_audio(descriptors):
