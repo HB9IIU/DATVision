@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLay
                              QStackedWidget, QScrollArea, QScroller)
 from magic_eye import MagicEye
 import calibration
-from ui_scale import px
+from ui_scale import px, style
 
 GREEN, AMBER, RED, DIM = "#50d7a0", "#ffbd45", "#ff6b6b", "#91a7ba"
 # Tuner gain steps of the R828D in the RTL-SDR Blog V4, dB.
@@ -581,24 +581,42 @@ class AboutPage(QWidget):
     back = pyqtSignal()
     quit = pyqtSignal()
 
-    def __init__(self, credits, version, wordmark=None):
-        super().__init__(objectName="settings")
+    def __init__(self, credits, licence, version, wordmark=None):
+        super().__init__(objectName="about")
+        # Piboto, the Raspberry Pi system font, is closer to the logo's lettering.
+        self.setStyleSheet(style("QWidget#about QLabel { font-family: 'Piboto', 'DejaVu Sans'; }"
+                           "QLabel#role { color: #9cb4c5; font-size: 15px; }"
+                           "QLabel#name { color: #edf5fa; font-size: 17px; }"
+                           "QLabel#version { color: #57f59f; font-size: 16px; }"
+                           "QLabel#licence { color: #9cb4c5; font-size: 13px; }"))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(px(24), px(16), px(24), px(16))
-        layout.setSpacing(px(14))
+        layout.setSpacing(px(10))
         top = QHBoxLayout()
-        label(top, "title", "About · version " + version)
+        label(top, "title", "About")
         top.addStretch()
         button(top, "BACK", self.back).setFixedSize(px(150), px(60))
         layout.addLayout(top)
         logo = QPixmap(str(wordmark)) if wordmark else QPixmap()
         if not logo.isNull():
             picture = QLabel()
-            picture.setPixmap(logo.scaledToHeight(px(110), Qt.SmoothTransformation))
+            picture.setPixmap(logo.scaledToHeight(px(96), Qt.SmoothTransformation))
             layout.addWidget(picture, 0, Qt.AlignHCenter)
-        text = label(layout, "value", credits)
-        text.setWordWrap(True)
+        layout.addWidget(QLabel("Version " + version, objectName="version"), 0, Qt.AlignHCenter)
+        layout.addSpacing(px(10))
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(px(24))
+        grid.setVerticalSpacing(px(8))
+        for row, (role, name) in enumerate(credits):
+            grid.addWidget(QLabel(role, objectName="role"), row, 0, Qt.AlignRight | Qt.AlignVCenter)
+            grid.addWidget(QLabel(name, objectName="name"), row, 1, Qt.AlignLeft | Qt.AlignVCenter)
+        holder = QHBoxLayout()
+        holder.addStretch()
+        holder.addLayout(grid)
+        holder.addStretch()
+        layout.addLayout(holder)
         layout.addStretch()
+        layout.addWidget(QLabel(licence, objectName="licence"), 0, Qt.AlignHCenter)
         quit_button = button(layout, "QUIT TO DESKTOP", self.quit, "danger")
         quit_button.setFixedHeight(px(60))
 

@@ -38,14 +38,16 @@ NO_STICK = "RTL-SDR stick not found\n\nUnplug it and plug it back in.\nReception
 STICK_BUSY = "RTL-SDR stick is busy\n\nUnplug it and plug it back in.\nIf that does not help, restart the Pi."
 SIGNAL_LOST_NOTICE_S = 3   # replace the frozen picture with a clear message
 SIGNAL_LOST_GIVE_UP_S = 30  # LOCAL: stop waiting for the station and scan the band again
-CREDITS = ("DATVision by HB9IIU · GPL v3; see LICENSE and the bundled source and notices.\n"
-           "DVB-S/S2 decoder based on OnAir by Kristijonas Adomaitis (adswill). LDPC decoder "
-           "optimizations by Evariste Courjaud (F5OEO). Additional DVB-S/S2 contributions by Arclamp. "
-           "BATC spectrum and original signal finder from HB9IIU Experimental H.266 Player. Magic eye "
-           "after HB9IIU SDR-Tiouner, inspired by the Lynx DATV Receiver (G8YTZ). "
-           "Video: mpv (libVLC fallback). Interface: PyQt5.")
+CREDITS = (("DVB-S/S2 decoder", "based on OnAir by Kristijonas Adomaitis (adswill)"),
+           ("LDPC decoder", "optimizations by Evariste Courjaud (F5OEO)"),
+           ("DVB-S/S2 contributions", "Arclamp"),
+           ("BATC spectrum, signal finder", "HB9IIU Experimental H.266 Player"),
+           ("Magic eye", "after HB9IIU SDR-Tiouner, inspired by the Lynx DATV Receiver (G8YTZ)"),
+           ("Video, interface", "mpv (libVLC fallback), PyQt5"))
+LICENCE = "GPL v3 · see LICENSE and the bundled source and notices."
+
 STYLE = """
-    QMainWindow, QWidget#surface, QWidget#settings { background: #0c1620; color: #dde8f1; }
+    QMainWindow, QWidget#surface, QWidget#settings, QWidget#about { background: #0c1620; color: #dde8f1; }
     QFrame#panel { background: #102331; border: 1px solid #1d3647; border-radius: 6px; }
     QLabel { color: #91a7ba; background: transparent; border: none; }
     QLabel#state { font-size: 17px; font-weight: 700; }
@@ -188,13 +190,13 @@ class Player(QMainWindow):
         version_file = root / "VERSION"
         version = version_file.read_text().strip() if version_file.exists() else "development"
         self.settings = SettingsPage()
-        self.about_page = AboutPage(CREDITS, version, root / "assets/branding/datvision-wordmark.png")
+        self.about_page = AboutPage(CREDITS, LICENCE, version, root / "assets/branding/datvision-wordmark.png")
         self.pages.addWidget(self.about_page)
         self.settings.about.connect(lambda: self.pages.setCurrentWidget(self.about_page))
         self.about_page.back.connect(lambda: self.pages.setCurrentWidget(self.settings))
         self.about_page.quit.connect(self.close)
         self.pages.addWidget(self.settings)
-        self.bands_page = BandsPage(bands.BANDS, CREDITS)
+        self.bands_page = BandsPage(bands.BANDS, "DATVision by HB9IIU · " + LICENCE + " Credits: ⚙ → ABOUT.")
         self.pages.addWidget(self.bands_page)
         self.bands_page.chosen.connect(self.choose_band)
         self.bands_page.quit.connect(self.close)
