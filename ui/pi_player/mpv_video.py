@@ -38,6 +38,17 @@ class MpvVideo:
         self.wanted_volume = 50
 
     def play(self, port, volume):
+        self.start("udp://127.0.0.1:%d?overrun_nonfatal=1&fifo_size=1000000" % port, volume)
+
+    def play_file(self, path, volume):
+        self.start(str(path), volume)
+
+    @property
+    def ended(self):
+        # A recording played to its end: mpv exits by itself.
+        return self.process is not None and self.process.poll() is not None
+
+    def start(self, source, volume):
         self.stop()
         self.wanted_volume = volume
         options = os.environ.get("DATVRX_MPV_OPTIONS", "").split()   # diagnosis, e.g. --vo=x11
@@ -48,8 +59,7 @@ class MpvVideo:
                  "--no-input-default-bindings", "--input-cursor=no", "--input-vo-keyboard=no",
                  "--osc=no", "--osd-level=0", "--hwdec=no"] + self.output + [
                  "--volume=%d" % max(0, min(100, volume)), "--volume-max=100",
-                 "--demuxer-lavf-format=mpegts", "--msg-level=all=warn"] + options +
-                ["udp://127.0.0.1:%d?overrun_nonfatal=1&fifo_size=1000000" % port],
+                 "--demuxer-lavf-format=mpegts", "--msg-level=all=warn"] + options + [source],
                 stdin=subprocess.DEVNULL, stdout=log, stderr=log, preexec_fn=killed_with_player)
 
     def request(self, *command):

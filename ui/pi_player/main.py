@@ -27,9 +27,9 @@ from spectrum import Spectrum
 from receiver import Receiver
 from video import Video
 import shutil
-from ts_info import callsign
+from ts_info import TsInfo, callsign
 import mpv_video
-from panels import GREEN, AMBER, RED, DIM, GAINS, REQUIRED_ESN0, InfoPanel, ControlPanel, SettingsPage, BandsPage
+from panels import GREEN, AMBER, RED, DIM, GAINS, REQUIRED_ESN0, InfoPanel, ControlPanel, SettingsPage, BandsPage, RecordingsPage
 
 REPORT = re.compile(r"(DVB-S2X|DVB-S2|DVB-S) (\S+) (\d+/\d+)\S*(?: short)?(?: pilots)?\s+[\d.]+ Msym/s"
                     r"\s+Es/N0 ([\d.-]+) dB\s+ok \d+\s+bad (\d+)")
@@ -60,6 +60,7 @@ STYLE = """
                   font-size: 14px; font-weight: 600; min-height: 40px; }
     QPushButton#symbol { font-size: 26px; }
     QPushButton#danger { color: #ff9b9b; border-color: #8a3b3b; }
+    QPushButton#half { font-size: 12px; }
     QPushButton#accent { background: #1f5a44; border-color: #50d7a0; }
     QPushButton#band { min-height: 116px; }
     QLabel#bandName { color: #dde8f1; font-size: 28px; font-weight: 700; }
@@ -186,6 +187,11 @@ class Player(QMainWindow):
         self.pages.addWidget(self.bands_page)
         self.bands_page.chosen.connect(self.choose_band)
         self.bands_page.quit.connect(self.close)
+        self.recordings_page = RecordingsPage()
+        self.pages.addWidget(self.recordings_page)
+        self.recordings_page.chosen.connect(self.play_recording)
+        self.recordings_page.back.connect(lambda: self.pages.setCurrentIndex(0))
+        self.replaying = None   # path of a recording being played back
         self.spectrum.set_band(self.band)
         self.controls.show_band(self.band)
         self.controls.show_gain(self.gain_db)
@@ -220,7 +226,7 @@ class Player(QMainWindow):
         self.controls.louder.connect(lambda: self.change_volume(10))
         self.controls.quieter.connect(lambda: self.change_volume(-10))
         self.controls.beacon.connect(lambda: self.cancel_calibration() or self.tune(Signal(BEACON_MHZ, 1500)))
-        self.controls.stop_start.connect(self.stop_start)
+        self.controls.replay.connect(self.open_recordings)
         self.controls.bands.connect(self.open_bands)
         self.controls.settings.connect(self.open_settings)
         self.controls.quit.connect(self.close)
@@ -294,7 +300,6 @@ class Player(QMainWindow):
         print("SCAN: %s %.3f-%.3f MHz" % (self.band.name, start, end), flush=True)
         self.info.reset(None)
         self.info.show_state("SCANNING", "#8cc4ff")
-        self.controls.show_running(False)
         self.show_placeholder("Scanning the band\n\nTap a signal to watch it")
         self.sweep_id = self.sweeper.start((start - self.offset_mhz()) * 1e6, (end - self.offset_mhz()) * 1e6, self.gain_db)
 
@@ -320,7 +325,9 @@ class Player(QMainWindow):
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.MouseButtonPress and watched in (self.video_surface, self.placeholder):
-            if self.current or self.full_video:
+            if self.replaying:
+                self.end_replay()   # tapping the playing recording ends it
+            elif self.current or self.full_video:
                 self.toggle_full_video()
             return True
         return super().eventFilter(watched, event)
@@ -363,6 +370,7 @@ class Player(QMainWindow):
     def tune(self, signal):
         print("TUNE: %.6f MHz, %d kS/s" % (signal.center_mhz, signal.symbol_rate_ks), flush=True)
         self.tuned_at = time.monotonic()
+        self.leave_replay()
         self.last_signal = signal
         if not stick_present():
             self.show_problem(NO_STICK, "NO RTL-SDR", True)
@@ -378,7 +386,6 @@ class Player(QMainWindow):
         self.modulation = ""
         self.info.reset(signal)
         self.info.show_state("TUNING", AMBER)
-        self.controls.show_running(True)
         self.show_placeholder("Tuning %.3f MHz…" % signal.center_mhz)
         self.spectrum.set_slot(signal, "searching", now=True)
         self.info.repaint()
@@ -428,7 +435,7 @@ class Player(QMainWindow):
     def check_picture(self):
         if self.calibration:
             return   # the progress stays on screen until calibration ends
-        if not self.current:
+        if not (self.current or self.replaying):
             self.picture_timer.stop()
         elif self.video.has_picture() and self.lost_since is None:
             self.picture_timer.stop()
@@ -495,6 +502,10 @@ class Player(QMainWindow):
         if self.receiver.recording and shutil.disk_usage(self.root).free < self.RECORD_STOP_FREE:
             self.end_recording("SD card almost full")
         self.show_recording()
+        if self.replaying:
+            if self.video.ended:
+                self.end_replay()
+            return
         if self.waiting_for_stick:
             # Give a replugged stick two seconds to settle before opening it.
             self.stick_seen = self.stick_seen + 1 if stick_present() else 0
@@ -552,14 +563,8 @@ class Player(QMainWindow):
         self.cancel_calibration()
         self.stop()   # in LOCAL mode, stopping returns to scanning
 
-    def stop_start(self):
-        self.cancel_calibration()
-        if self.current:
-            self.stop()
-        elif self.last_signal:
-            self.tune(self.last_signal)
-
     def stop(self, scan=True):
+        self.leave_replay()
         self.session_id = -1
         self.end_recording()
         self.receiver.stop()
@@ -573,7 +578,6 @@ class Player(QMainWindow):
         self.spectrum.set_slot(None, "searching")
         self.info.reset(None)
         self.info.show_state("STOPPED", DIM)
-        self.controls.show_running(False)
         if scan and self.effective_source() == "local":
             self.start_scan()
 
@@ -757,6 +761,47 @@ class Player(QMainWindow):
     def show_recording(self):
         possible = bool(self.current and self.locked_at is not None and self.lost_since is None)
         self.controls.show_recording(self.receiver.recording, possible)
+
+    # ---- playing recordings back: the stick and the receiver rest meanwhile
+    def open_recordings(self):
+        self.recordings_page.load(self.root / "Record")
+        self.pages.setCurrentWidget(self.recordings_page)
+
+    def play_recording(self, path):
+        path = Path(path)
+        self.pages.setCurrentIndex(0)
+        print("REPLAY %s" % path, flush=True)
+        self.cancel_calibration()
+        self.sweeper.stop()
+        self.stop(scan=False)
+        info = TsInfo()
+        try:
+            with open(path, "rb") as recording:
+                info.feed(recording.read(2_000_000))
+        except OSError:
+            pass
+        self.replaying = path
+        self.info.show_state("REPLAY", AMBER)
+        self.info.show_streams(info.service or path.parent.name, path.name, info.video, info.audio)
+        self.spectrum.frozen = True
+        self.spectrum.show_message("Playing a recording · reception paused")
+        self.show_placeholder("Opening the recording…")
+        if not self.full_video:
+            self.toggle_full_video()   # full screen; a tap on the picture ends it
+        self.video.play_file(path, self.output_volume())
+        self.picture_timer.start(100)
+
+    def leave_replay(self):
+        if self.replaying:
+            self.replaying = None
+            self.video.stop()
+            if self.full_video:
+                self.toggle_full_video()
+
+    def end_replay(self):
+        print("REPLAY end", flush=True)
+        self.leave_replay()
+        self.start_default()   # back to scanning, or to the beacon with BATC
 
     def open_bands(self):
         self.bands_page.show_current(self.band.key)

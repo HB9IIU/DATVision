@@ -4,7 +4,7 @@ import time
 from PyQt5.QtCore import Qt, pyqtSignal, QPointF, QRectF, QSize, QTimer
 from PyQt5.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PyQt5.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QSizePolicy,
-                             QStackedWidget)
+                             QStackedWidget, QScrollArea, QScroller)
 from magic_eye import MagicEye
 import calibration
 from ui_scale import px
@@ -298,7 +298,7 @@ def amplifier_icon():
     return QIcon(pixmap)
 
 
-CONTROL_HEIGHT = 46
+CONTROL_HEIGHT = 52   # tallest a control row gets; fewer rows leave it at that
 
 
 class ControlPanel(QFrame):
@@ -306,7 +306,7 @@ class ControlPanel(QFrame):
     louder = pyqtSignal()
     quieter = pyqtSignal()
     beacon = pyqtSignal()
-    stop_start = pyqtSignal()
+    replay = pyqtSignal()
     bands = pyqtSignal()
     settings = pyqtSignal()
     gain_down = pyqtSignal()
@@ -329,7 +329,7 @@ class ControlPanel(QFrame):
         gain.setContentsMargins(0, 0, 0, 0)
         gain.setSpacing(px(8))
         readout = QFrame(objectName="readout")
-        readout.setFixedHeight(px(CONTROL_HEIGHT))
+        self.readout = readout
         row = QHBoxLayout(readout)
         row.setContentsMargins(px(4), 0, px(4), 0)
         row.setSpacing(px(4))
@@ -343,8 +343,9 @@ class ControlPanel(QFrame):
         self.pair(gain, self.gain_down, self.gain_up)
         layout.addWidget(self.gain)
         self.beacon_button = button(layout, "BEACON", self.beacon)
-        self.run = button(layout, "STOP", self.stop_start)
+        # No STOP: rescan and taps cover it. Record and replay take its place.
         self.record_button = button(layout, "● REC", self.record)
+        button(layout, "▶ PLAY", self.replay)
         self.show_recording(False, False)
         layout.addStretch()
         button(layout, "BANDS", self.bands)   # full video: tap the picture
@@ -360,8 +361,8 @@ class ControlPanel(QFrame):
         self.quit_timer.timeout.connect(self.disarm_quit)
         self.disarm_quit()
         for widget in self.findChildren(QPushButton):
-            widget.setFixedHeight(px(CONTROL_HEIGHT))
             widget.setIconSize(QSize(px(34), px(34)))
+        self.fit_rows()
 
     def quit_tapped(self):
         if self.quit_timer.isActive():
@@ -384,9 +385,27 @@ class ControlPanel(QFrame):
 
     def show_band(self, band):
         self.beacon_button.setVisible(bool(band.beacon_mhz))
-        self.run.setVisible(band.via_lnb)
         self.settings_button.setVisible(band.via_lnb or bool(band.converter_los))
         self.gain.setVisible(not band.via_lnb)
+        self.fit_rows()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.fit_rows()
+
+    def fit_rows(self):
+        # Share the column height between the visible rows: 8 rows on most bands,
+        # 9 on 6 cm (gain and settings), so every row stays as tall as it can.
+        gain = not self.gain.isHidden()
+        rows = 7 + (not self.beacon_button.isHidden()) + (2 if gain else 0) + (not self.settings_button.isHidden())
+        items = rows - (1 if gain else 0)
+        layout = self.layout()
+        margins = layout.contentsMargins()
+        free = self.height() - margins.top() - margins.bottom() - px(8) - layout.spacing() * (items - 1) - (px(8) if gain else 0)
+        height = max(px(38), min(px(CONTROL_HEIGHT), free // rows)) if self.height() > 100 else px(CONTROL_HEIGHT)
+        self.readout.setFixedHeight(height)
+        for widget in self.findChildren(QPushButton):
+            widget.setFixedHeight(height)
 
     def show_gain(self, gain_db):
         self.gain_value.setText("%.1f dB" % gain_db)
@@ -401,8 +420,6 @@ class ControlPanel(QFrame):
         self.record_button.setStyleSheet("background: #5a1f24; border-color: #ff6b6b; color: #ffd6d6;" if active else "")
         self.record_button.setEnabled(active or possible)
 
-    def show_running(self, running):
-        self.run.setText("STOP" if running else "START")
 
 
 class BandsPage(QWidget):
@@ -458,6 +475,80 @@ class BandsPage(QWidget):
         self.current = key
         for name, widget in self.buttons.items():
             widget.setChecked(name == key)
+
+
+class RecordingsPage(QWidget):
+    """Recorded transport streams, newest first: tap one to play it, DELETE twice to remove it."""
+    chosen = pyqtSignal(str)
+    back = pyqtSignal()
+
+    def __init__(self):
+        super().__init__(objectName="settings")
+        self.folder = None
+        self.armed = None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(px(24), px(16), px(24), px(16))
+        layout.setSpacing(px(12))
+        top = QHBoxLayout()
+        heading = QVBoxLayout()
+        heading.setSpacing(px(2))
+        label(heading, "title", "Recordings")
+        self.summary = label(heading, "caption")
+        top.addLayout(heading)
+        top.addStretch()
+        button(top, "BACK", self.back).setFixedSize(px(150), px(60))
+        layout.addLayout(top)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }")
+        listing = QWidget()
+        self.rows = QVBoxLayout(listing)
+        self.rows.setContentsMargins(0, 0, 0, 0)
+        self.rows.setSpacing(px(8))
+        self.rows.addStretch()
+        scroll.setWidget(listing)
+        QScroller.grabGesture(scroll.viewport(), QScroller.LeftMouseButtonGesture)   # swipe to scroll
+        layout.addWidget(scroll, 1)
+
+    def load(self, folder):
+        self.folder, self.armed = folder, None
+        while self.rows.count() > 1:
+            self.rows.takeAt(0).widget().deleteLater()
+        files = sorted(folder.glob("*/*.ts"), key=lambda path: path.stat().st_mtime, reverse=True) if folder.exists() else []
+        total = sum(path.stat().st_size for path in files)
+        self.summary.setText("%d recordings · %.0f MB" % (len(files), total / 2**20) if files else
+                             "No recordings yet: tap ● REC while watching a station.")
+        for path in files:
+            row = QFrame(objectName="panel")
+            line = QHBoxLayout(row)
+            line.setContentsMargins(px(8), px(8), px(8), px(8))
+            line.setSpacing(px(8))
+            when = time.strftime("%d.%m.%Y  %H:%M", time.localtime(path.stat().st_mtime))
+            play = QPushButton("▶   %s     %s     %.0f MB" % (path.parent.name, when, path.stat().st_size / 2**20))
+            play.setFocusPolicy(Qt.NoFocus)
+            play.setFixedHeight(px(52))
+            play.clicked.connect(lambda _, path=path: self.chosen.emit(str(path)))
+            line.addWidget(play, 1)
+            delete = QPushButton("DELETE", objectName="danger")
+            delete.setFocusPolicy(Qt.NoFocus)
+            delete.setFixedSize(px(120), px(52))
+            delete.clicked.connect(lambda _, path=path, widget=delete: self.delete_tapped(path, widget))
+            line.addWidget(delete)
+            self.rows.insertWidget(self.rows.count() - 1, row)
+
+    def delete_tapped(self, path, widget):
+        if self.armed is widget:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            self.load(self.folder)
+            return
+        if self.armed is not None:
+            self.armed.setText("DELETE")
+        self.armed = widget
+        widget.setText("DELETE?")
 
 
 class SettingsPage(QWidget):

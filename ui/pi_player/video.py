@@ -1,6 +1,7 @@
 """Small ctypes binding to the system libVLC. Video is embedded in an X11 Qt widget."""
 import ctypes as C
 import os
+from pathlib import Path
 from ctypes.util import find_library
 import threading
 
@@ -66,6 +67,16 @@ class Video:
         if self.lib.libvlc_media_player_play(self.player) < 0:
             raise RuntimeError("VLC could not start playback")
         self.volume(volume)
+
+    def play_file(self, path, volume):
+        media = self.lib.libvlc_media_new_location(self.instance, Path(path).resolve().as_uri().encode())
+        self.lib.libvlc_media_player_set_media(self.player, media)
+        self.lib.libvlc_media_release(media)
+        if self.lib.libvlc_media_player_play(self.player) < 0:
+            raise RuntimeError("VLC could not start playback")
+        self.volume(volume)
+
+    ended = False   # the fallback engine does not report the end of a recording
 
     def volume(self, volume):
         self.lib.libvlc_audio_set_volume(self.player, max(0, min(100, volume)))

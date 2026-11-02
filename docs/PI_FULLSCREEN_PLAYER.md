@@ -25,8 +25,8 @@ The video sits between two columns that use the letterbox space.
   shadow wide open while searching, and closing with the Es/N0 margin once
   locked (fully closed at about 5 dB margin). The constellation shows 256
   recent symbols four times a second, from `datvrx --cells`. The choice is saved.
-- **Right: controls.** Sound/Mute, volume − / +, Beacon, Stop/Start (Start
-  resumes the last signal), Full Video and Settings.
+- **Right: controls.** Sound/Mute, volume − / +, Beacon (QO-100), ● REC and
+  ▶ PLAY, Bands, ⚙ Settings and ⏻ quit.
 - **Tap the video** (or Full Video) to show only the picture; tap again to return.
 - **Settings** is a full-screen page: the LNB oscillator (shown, not typed in)
   with CALIBRATE / RECALIBRATE ON BEACON, RF gain through the R828D steps,
@@ -37,7 +37,7 @@ The video sits between two columns that use the letterbox space.
   lines) give `true LNB = assumed LNB − offset − detune`. The steps must agree
   within 5 kHz, else nothing changes. The result is shown with UNDO and kept on
   DONE; reception then returns to the previous station. Any tap on the spectrum,
-  BEACON or STOP cancels it. Details are logged as `CALIBRATION` lines.
+  or BEACON cancels it. Details are logged as `CALIBRATION` lines.
 - **BANDS** (replacing Full Video; tap the picture for that): QO-100 via the
   LNB; 4 m, 2 m, 70 cm and 23 cm A/B (the IARU Region 1 ATV segments) direct
   from the antenna; 6 cm via a downconverter. Terrestrial and converter bands
@@ -50,9 +50,14 @@ The video sits between two columns that use the letterbox space.
 - **● REC** records the received transport stream while a station is locked,
   as in the Windows version: `Record/<callsign>/DATV-<date>-<time>.ts` in the
   player folder (callsign from the service name, else `Unknown`). The button
-  turns red while recording; tap again to finish. Tuning elsewhere, STOP or quit
+  turns red while recording; tap again to finish. Tuning elsewhere, a rescan or quit
   also finish it. It will not start below 500 MB free and stops itself below
   300 MB, so the SD card never fills up.
+- **▶ PLAY** (next to REC) lists the recordings newest first: tap one to play it
+  full screen (REPLAY; the stick and receiver rest); a tap on the picture or the
+  end of the file returns to reception. DELETE removes a file after a second tap.
+  Swipe to scroll. There is no STOP button: TAP TO RESCAN, a tap on another
+  station or BEACON change reception, and ⏻ quits.
 - The right column ends with ⚙ (Settings, where the band has any) and ⏻ (quit to
   the desktop): the first tap turns it into QUIT?, a second tap within 3 s quits.
 - New installations start with the BATC spectrum on QO-100 (straight to the
