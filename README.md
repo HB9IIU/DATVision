@@ -1,75 +1,76 @@
-<p align="center"><img src="assets/branding/datvision-wordmark.png" alt="DATVision by HB9IIU" width="600"></p>
+<p align="center"><img src="assets/branding/datvision-github.png" alt="DATVision by HB9IIU" width="720"></p>
 
-# DATV receiver — Windows trials, then Raspberry Pi
+# DATVision
 
-**Standalone Windows monitor:** start `DATVision.cmd` for the floating
-Pi-style layout with a local SDR. See [Windows monitor guide](docs/WINDOWS_MONITOR.md).
+**DATVision** turns an inexpensive RTL-SDR stick into a dedicated receiver for
+digital amateur television (DVB-S and DVB-S2): QO-100 and the terrestrial ATV
+bands, with spectrum, click-to-tune, video and sound in one application.
 
-Standalone DVB-S/DVB-S2 receiver derived from OnAir, with existing S2X code.
-Reads SDR I/Q samples from a recording or pipe and writes MPEG transport-stream
-packets for playback with ffplay or VLC. The Windows monitor adds a graphical
-interface and RTL-SDR capture; the receiver command-line tool stays independent.
+It runs on a **Raspberry Pi with a touchscreen**, as a stand-alone receiver
+operated with a finger, and on **Windows**.
 
-```text
-rtl_sdr / I/Q recording -> datvrx -> MPEG-TS file / player
-```
+<p align="center"><img src="assets/screenshots/pi-main.png" alt="DATVision on a Raspberry Pi touchscreen" width="720"></p>
 
-This directory is the self-contained working project. The original temporary
-folder is no longer needed by the build or receiver.
+## Features
 
-## Start on Windows
+- **DVB-S and DVB-S2** reception up to 1500 kS/s with an RTL-SDR Blog V4 or R820T stick.
+- **QO-100** through the LNB, with the BATC web spectrum or a local scan by the
+  stick itself, and LNB calibration on the beacon.
+- **Terrestrial bands**: 4 m, 2 m, 70 cm, 23 cm, and 6 cm through a downconverter.
+- **Tap a signal to tune**: carrier and symbol rate are found automatically.
+- Reception quality as Es/N0 and the MiniTioune-style **D margin**, with an
+  animated **magic eye** or the live **constellation**.
+- **H.264, H.265 and H.266 (VVC)** video. On the Raspberry Pi, H.266 needs
+  Raspberry Pi OS Trixie.
+- **Recording** to transport-stream files and **playback**.
+- **Network stream** of the live reception to VLC on any PC at home.
 
-Install the prerequisites in [docs/WINDOWS.md](docs/WINDOWS.md), then run:
+<p align="center">
+<img src="assets/screenshots/pi-launch.png" alt="Receiving the QO-100 beacon" width="280">
+<img src="assets/screenshots/pi-bands.png" alt="Bands" width="280">
+<img src="assets/screenshots/pi-settings.png" alt="Settings" width="280">
+</p>
 
-```powershell
-./scripts/windows/build.ps1
-```
+## Raspberry Pi
 
-From an MSYS2 UCRT64 shell in this directory:
-
-```sh
-DATVRX_BIN=build/windows bash scripts/selftest.sh
-```
-
-Windows build and synthetic DVB-S2 reception have passed on this PC; see the
-validation notes for results and remaining hardware tests.
-
-For the clickable-spectrum Windows interface, see [the player guide](docs/PLAYER.md).
-Build it with `scripts/windows/build-player.ps1`, then start `RTL DATV Player.cmd`.
-
-On the Pi itself, **DATVision** opens the native fullscreen touchscreen
-interface. See [the Pi fullscreen player guide](docs/PI_FULLSCREEN_PLAYER.md).
-
-## Later: remote Raspberry Pi
-
-Copy the source to the Pi and build natively there:
+Raspberry Pi 5 or 4, Raspberry Pi OS 64-bit with desktop (Bookworm or Trixie),
+a touchscreen and an RTL-SDR stick. In a terminal on the Pi:
 
 ```sh
-bash scripts/linux/build.sh
-DATVRX_BIN=build/linux bash scripts/selftest.sh
+curl -fsSL https://github.com/HB9IIU/DATVision/releases/latest/download/install.sh | bash
 ```
 
-See [docs/REMOTE_PI.md](docs/REMOTE_PI.md) for prerequisites and the staged trial
-process. The Pi's performance and live RF reception still need to be measured.
+The same command updates an existing installation and keeps its settings.
+See the [Raspberry Pi guide](docs/raspberry-pi.md).
 
-## Project references
+## Windows
 
-- [Project structure and source origin](docs/PROJECT_STRUCTURE.md)
-- [Local validation](docs/VALIDATION.md)
-- [Original README: options, sample formats and reception examples](docs/UPSTREAM_README.md)
+Windows 10/11 x64 and an RTL-SDR stick with the WinUSB driver (installed once
+with Zadig). Download the portable ZIP from the
+[latest release](https://github.com/HB9IIU/DATVision/releases/latest), extract
+the whole folder and open **DATVision.exe**; no installation is needed.
+See the [Windows guide](docs/windows.md).
 
-The core is C++20 with a Rust static library. The Rust workspace uses local
-crates; CMake builds it with Cargo in offline mode. The same receiver source
-is used on Windows and Linux. Build products belong under `build/`.
+## Documentation
 
-## Licence and credits
+- [Raspberry Pi guide](docs/raspberry-pi.md)
+- [Windows guide](docs/windows.md)
+- [Building from source](docs/building.md)
+- [The datvrx receiver on the command line](docs/receiver.md)
+- [Project structure and origin](docs/project-structure.md)
 
-GPL-3.0-or-later; see [LICENSE](LICENSE). The DVB-S/S2 decoder is based on
-[OnAir](https://github.com/adswill/OnAir) by Kristijonas Adomaitis (adswill), with
-LDPC decoder optimizations by Evariste Courjaud (F5OEO) and additional DVB-S/S2
-contributions by Arclamp (its GSE, IP and S2X super-frame parts are adapted from
-DecSAT). The BATC spectrum and original signal finder come from HB9IIU
-Experimental H.266 Player; the magic eye follows HB9IIU SDR-Tiouner, inspired by
-the Lynx DATV Receiver (G8YTZ). Preserve the original copyright and
-licence notices and provide the corresponding source when distributing binaries
-as required by the licence.
+## Credits
+
+- DVB-S/S2 decoder based on [OnAir](https://github.com/adswill/OnAir) by
+  Kristijonas Adomaitis (adswill)
+- LDPC decoder optimizations by Evariste Courjaud (F5OEO)
+- Additional DVB-S/S2 contributions by Arclamp
+- BATC spectrum and original signal finder from HB9IIU Experimental H.266 Player
+- Magic eye after HB9IIU SDR-Tiouner, inspired by the Lynx DATV Receiver (G8YTZ)
+- QO-100 wideband spectrum courtesy of the [BATC](https://batc.org.uk)
+
+## Licence
+
+GPL-3.0-or-later; see [LICENSE](LICENSE). Releases include the corresponding
+source code, and the Raspberry Pi release the source of the bundled RTL-SDR
+driver (GPL-2.0).
