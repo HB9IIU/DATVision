@@ -4,6 +4,8 @@
 #
 #   curl -fsSL https://github.com/HB9IIU/WIP/releases/latest/download/install.sh | bash
 #   bash install.sh               install, or update keeping your settings
+#                                 (uses the package next to install.sh if it is there,
+#                                 for testing a version that is not on GitHub yet)
 #   bash install.sh --uninstall   remove everything this installer added
 #
 # Everything goes into your home folder, except two small system files that give
@@ -17,6 +19,8 @@ ARCHIVE="pi-datv-rx-$VERSION-arm64.tar.gz"
 URL="https://github.com/$REPO/releases/download/v$VERSION"
 UDEV_RULE=/etc/udev/rules.d/60-pi-datv-rx.rules
 BLACKLIST=/etc/modprobe.d/pi-datv-rx-blacklist.conf
+# The folder of this script; empty when it arrives through a pipe from curl.
+HERE=$([[ -f ${BASH_SOURCE[0]:-} ]] && cd "$(dirname "${BASH_SOURCE[0]}")" && pwd || true)
 LAUNCHER="$HOME/.local/share/applications/rtl-datv-player.desktop"
 AUTOSTART="$HOME/.config/autostart/rtl-datv-player.desktop"
 DESKTOP_DIR=$(xdg-user-dir DESKTOP 2>/dev/null || printf '%s/Desktop' "$HOME")
@@ -121,11 +125,16 @@ if lsmod | grep -q '^dvb_usb_rtl28xxu'; then
   note "The DVB-T TV driver is still holding the stick: unplug and replug it after the installation."
 fi
 
-bold "[3/5] Downloading the player"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-curl -fL --progress-bar -o "$work/$ARCHIVE" "$URL/$ARCHIVE" || fail "download of $ARCHIVE failed."
-curl -fsSL -o "$work/SHA256SUMS" "$URL/SHA256SUMS" || fail "download of SHA256SUMS failed."
+if [[ -n $HERE && -f $HERE/$ARCHIVE && -f $HERE/SHA256SUMS ]]; then
+  bold "[3/5] Using the player package next to install.sh"
+  cp "$HERE/$ARCHIVE" "$HERE/SHA256SUMS" "$work/"
+else
+  bold "[3/5] Downloading the player"
+  curl -fL --progress-bar -o "$work/$ARCHIVE" "$URL/$ARCHIVE" || fail "download of $ARCHIVE failed."
+  curl -fsSL -o "$work/SHA256SUMS" "$URL/SHA256SUMS" || fail "download of SHA256SUMS failed."
+fi
 (cd "$work" && grep " $ARCHIVE\$" SHA256SUMS | sha256sum -c --quiet -) || fail "the download is damaged (checksum)."
 tar -C "$work" -xzf "$work/$ARCHIVE"
 
