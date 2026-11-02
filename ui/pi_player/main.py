@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import signal
 import socket
+import subprocess
 import sys
 import time
 import traceback
@@ -74,6 +75,15 @@ STYLE = """
     QPushButton:disabled { color: #4c6274; }
     QPushButton:checked { background: #1f5a44; border-color: #50d7a0; }
 """
+
+
+def decodes_h266():
+    """Whether mpv's FFmpeg has an H.266/VVC decoder: FFmpeg 7, e.g. Raspberry Pi OS Trixie, not Bookworm."""
+    try:
+        listing = subprocess.run(["mpv", "--vd=help"], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return re.search(r"^\s+vvc\b", listing, re.M) is not None
 
 
 def pi_model():
@@ -272,8 +282,10 @@ class Player(QMainWindow):
         screen = self.screen()
         print("DISPLAY: %dx%d, %.2f Hz, scale %.2f%s" % (screen.size().width(), screen.size().height(), screen.refreshRate(),
                                                        ui_scale.scale, " · preview" if preview else ""), flush=True)
-        print("PI: %s%s · video: %s" % (pi_model() or "unknown", " · real-time receiver" if SLOW_PI else "",
-                                       "mpv" if isinstance(self.video, mpv_video.MpvVideo) else "libVLC"), flush=True)
+        self.h266 = isinstance(self.video, mpv_video.MpvVideo) and decodes_h266()
+        print("PI: %s%s · video: %s%s" % (pi_model() or "unknown", " · real-time receiver" if SLOW_PI else "",
+                                         "mpv" if isinstance(self.video, mpv_video.MpvVideo) else "libVLC",
+                                         " · H.266" if self.h266 else " · no H.266 decoder"), flush=True)
         QTimer.singleShot(200, lambda: self.spectrum.set_source(self.effective_source()))
         QTimer.singleShot(500, self.start_default)
 
@@ -545,6 +557,11 @@ class Player(QMainWindow):
             audio = (audio + " · muted").lstrip(" ·")
         self.info.show_streams(info.service if info else "", info.provider if info else "",
                                video or "waiting for video", audio)
+        if info and info.video == "H.266" and not self.h266 and self.lost_since is None \
+                and self.video_stack.currentWidget() is self.placeholder:
+            # Without a decoder mpv cannot even open the stream: no picture, no sound.
+            self.show_placeholder("H.266 video cannot be decoded here.\n"
+                                  "It needs Raspberry Pi OS Trixie.", AMBER)
         self.info.constellation.update()
         if time.monotonic() - self.last_report > 5:
             self.info.show_state("WAITING", AMBER)
