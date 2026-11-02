@@ -274,7 +274,7 @@ class Player(QMainWindow):
             self.sweeper.start = lambda *args: 0
             self.spectrum_source = "batc"   # something to look at without the stick
         if window:
-            self.setWindowTitle("RTL DATV · %s %dx%d" % ((("layout preview" if preview else "live window"),) + window))
+            self.setWindowTitle("DATVision · %s %dx%d" % ((("layout preview" if preview else "live window"),) + window))
             self.setFixedSize(*window)
             self.show()
         else:
