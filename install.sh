@@ -165,7 +165,19 @@ rm -f "$DESKTOP_DIR/RTL DATV Player.desktop"   # the name before DATVision
 cp "$LAUNCHER" "$DESKTOP_DIR/DATVision.desktop"
 chmod u+x "$LAUNCHER" "$DESKTOP_DIR/DATVision.desktop"
 sed 's|start-pi-player.sh"|start-pi-player.sh" --autostart|' "$LAUNCHER" > "$AUTOSTART"
-note "Icon on the desktop; starts by itself with the desktop."
+# Touchscreens: one tap opens a desktop icon (the default wants a mouse double click).
+fm_conf="$HOME/.config/libfm/libfm.conf"
+if [[ -f $fm_conf || -f /etc/xdg/libfm/libfm.conf ]]; then
+  mkdir -p "$(dirname "$fm_conf")"
+  [[ -f $fm_conf ]] || cp /etc/xdg/libfm/libfm.conf "$fm_conf"
+  if grep -q '^single_click=' "$fm_conf"; then
+    sed -i 's/^single_click=.*/single_click=1/' "$fm_conf"
+  else
+    sed -i 's/^\[config\]$/[config]\nsingle_click=1/' "$fm_conf"
+  fi
+  pcmanfm --reconfigure >/dev/null 2>&1 || true
+fi
+note "Icon on the desktop (one tap starts it); starts by itself with the desktop."
 
 bold "Checking the stick"
 if lsusb | grep -q -E '0bda:(2838|2832)'; then
