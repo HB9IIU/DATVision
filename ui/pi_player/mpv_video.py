@@ -5,23 +5,33 @@ on a Pi 4 ("failed to create video converter"); mpv with the same software
 decoder plays it smoothly there. One mpv process per stream, driven through its
 JSON IPC socket; it has the same interface as video.Video.
 """
+import ctypes
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import threading
-from receiver import end_with_player, exited
+from receiver import exited
 
 AVAILABLE = shutil.which("mpv") is not None
 
 
+def killed_with_player():
+    # mpv can hang in its own shutdown; a leftover one keeps drawing into the reused
+    # window id and blacks out the next player's video. Make the kernel kill it.
+    ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGKILL)   # PR_SET_PDEATHSIG
+
+
 class MpvVideo:
-    def __init__(self, window_id, log_path, plain_output=False):
+    def __init__(self, window_id, log_path, max_fps=None):
         self.window_id = int(window_id)
-        # The GPU output (x11egl) stays invisible in the embedded window on a Pi 4 with
-        # Trixie; mpv's plain X11 output shows it, and costs that Pi less.
-        self.output = ["--vo=x11"] if plain_output else ["--vo=gpu", "--gpu-context=x11egl"]
+        self.output = ["--vo=gpu", "--gpu-context=x11egl"]
+        if max_fps:
+            # A Pi 4 stays black with the beacon's 50 pictures/s; shown at 25 it plays.
+            # Other DATV streams already run at 25 or less.
+            self.output.append("--vf=fps=fps=%d" % max_fps)
         self.log_path = log_path
         self.socket_path = "/tmp/pi-datv-rx-mpv-%d.sock" % os.getpid()
         self.process = None
@@ -40,7 +50,7 @@ class MpvVideo:
                  "--volume=%d" % max(0, min(100, volume)), "--volume-max=100",
                  "--demuxer-lavf-format=mpegts", "--msg-level=all=warn"] + options +
                 ["udp://127.0.0.1:%d?overrun_nonfatal=1&fifo_size=1000000" % port],
-                stdin=subprocess.DEVNULL, stdout=log, stderr=log, preexec_fn=end_with_player)
+                stdin=subprocess.DEVNULL, stdout=log, stderr=log, preexec_fn=killed_with_player)
 
     def request(self, *command):
         # Short timeout: the interface asks every second and must never wait on mpv.
@@ -101,4 +111,6 @@ class MpvVideo:
             exited(process, 2)
 
     def close(self):
-        self.stop()
+        process, self.process = self.process, None
+        if process is not None:
+            process.kill()

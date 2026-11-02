@@ -70,7 +70,8 @@ driven through its IPC socket; `ui/pi_player/mpv_video.py`). libVLC remains as
 a fallback when mpv is missing or with `DATVRX_VIDEO=vlc`. Raspberry Pi's VLC
 build could not display the beacon (H.264 1280x720 at 50 fps) on a Pi 4
 ("failed to create video converter"); mpv plays it there with all pictures
-shown, using its plain X11 output on a Pi 4 and the GPU output elsewhere.
+shown, using its GPU output; on a Pi 4 at most 25 pictures/s are shown, since
+the beacon's 50/s left the picture black there.
 `DATVRX_MPV_OPTIONS` adds mpv options for diagnosis; mpv messages go to
 `test-output/pi-player-video.log`.
 

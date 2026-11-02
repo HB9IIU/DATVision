@@ -203,7 +203,7 @@ class Player(QMainWindow):
         # mpv draws the video; libVLC remains as a fallback (no mpv, or DATVRX_VIDEO=vlc).
         if mpv_video.AVAILABLE and os.environ.get("DATVRX_VIDEO") != "vlc":
             self.video = mpv_video.MpvVideo(self.video_surface.winId(), root / "test-output/pi-player-video.log",
-                                            plain_output=SLOW_PI)
+                                            max_fps=25 if SLOW_PI else None)
         else:
             self.video = Video(self.video_surface.winId())
         # VLC ignores the pointer, so taps on the picture reach Qt.
@@ -753,6 +753,8 @@ class Player(QMainWindow):
         self.spectrum.stop()
         self.sweeper.stop()
         self.receiver.stop()
+        if isinstance(self.video, mpv_video.MpvVideo):
+            self.video.close()
         self.save_settings()
         event.accept()
         # End here, without libVLC's own shutdown: on a Pi 4 with Trixie it aborts
