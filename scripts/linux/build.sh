@@ -5,7 +5,7 @@ if ! command -v cargo >/dev/null 2>&1 && [ -f "$HOME/.cargo/env" ]; then
   . "$HOME/.cargo/env"
 fi
 # Build natively on the Linux PC or remote Pi. Override for smaller-memory Pis.
-# The stick tools need the RTL-SDR V4 driver (docs/PI_LIVE.md); without it only the receiver is built.
+# The stick tools need the RTL-SDR V4 driver (docs/building.md); without it only the receiver is built.
 rtl=()
 driver="$HOME/.local/datvrx-rtl"
 if [[ -f $driver/lib/librtlsdr.so && -f $driver/include/rtl-sdr.h ]]; then

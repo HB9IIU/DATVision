@@ -1,8 +1,10 @@
-# Standalone DATVision — Pi-style layout
+# DATVision on Windows
 
-Start **DATVision.cmd**. This application uses an SDR attached to the
-Windows PC. The new monitor has no Pi or SSH dependency. Existing Pi tools and
-legacy remote-player launchers remain separate.
+DATVision on a Windows 10/11 PC with an RTL-SDR stick attached to it. Download
+the portable ZIP from the release page, extract the whole folder to a writable
+place and open **DATVision.exe**; no installation is needed. The RTL-SDR needs
+the WinUSB driver, installed once with Zadig. From the source tree, start
+**DATVision.cmd** after building ([building.md](building.md)).
 
 ## Layout and operation
 

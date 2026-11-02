@@ -1,4 +1,4 @@
-// Reused from HB9IIU Experimental H.266 Player (GPL v3); original source credits in docs/WINDOWS_MONITOR.md.
+// Reused from HB9IIU Experimental H.266 Player (GPL v3); original source credits in docs/windows.md.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;

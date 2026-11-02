@@ -21,7 +21,7 @@ if [[ -n $(git status --porcelain) ]]; then
   echo 'Commit or stash the changes first: a release is built from a clean tree.' >&2
   exit 1
 fi
-[[ -f $driver_lib && -d $driver_src/.git ]] || { echo 'The private V4 driver is missing (see docs/PI_LIVE.md).' >&2; exit 1; }
+[[ -f $driver_lib && -d $driver_src/.git ]] || { echo 'The private V4 driver is missing (see docs/building.md).' >&2; exit 1; }
 
 bash scripts/linux/build.sh
 out=build/release
@@ -34,7 +34,7 @@ cp ui/pi_player/*.py "$stage/ui/pi_player/"
 cp scripts/linux/start-pi-player.sh scripts/linux/preview-layout.sh "$stage/scripts/linux/"
 cp assets/branding/*.png assets/branding/*.svg assets/branding/README.md "$stage/assets/branding/"
 cp LICENSE "$stage/"
-cp docs/PI_FULLSCREEN_PLAYER.md "$stage/docs/"
+cp docs/raspberry-pi.md "$stage/docs/"
 printf '%s\n' "$version" > "$stage/VERSION"
 printf 'pi-datv-rx %s, %s, built from %s\n' "$version" "$(date -u +%F)" "$(git rev-parse --short HEAD)" > "$stage/BUILD-INFO"
 
