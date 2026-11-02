@@ -7,15 +7,16 @@ launcher="$HOME/.local/share/applications/rtl-datv-player.desktop"
 cat > "$launcher" <<EOF
 [Desktop Entry]
 Type=Application
-Name=RTL DATV Player
+Name=DATVision
 Comment=Fullscreen DATV video and touch-to-tune spectrum on this Raspberry Pi
 Exec=/usr/bin/bash "$project_root/scripts/linux/start-pi-player.sh"
 Path=$project_root
-Icon=video-display
+Icon=$project_root/assets/branding/datvision-icon.png
 Terminal=false
 Categories=AudioVideo;Video;
 EOF
 chmod u+x "$launcher"
-cp "$launcher" "$desktop_dir/RTL DATV Player.desktop"
-chmod u+x "$desktop_dir/RTL DATV Player.desktop"
-printf 'Pi desktop shortcut: %s/RTL DATV Player.desktop\n' "$desktop_dir"
+rm -f "$desktop_dir/RTL DATV Player.desktop"   # the name before DATVision
+cp "$launcher" "$desktop_dir/DATVision.desktop"
+chmod u+x "$desktop_dir/DATVision.desktop"
+printf 'Pi desktop shortcut: %s/DATVision.desktop\n' "$desktop_dir"

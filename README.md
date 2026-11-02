@@ -31,7 +31,7 @@ validation notes for results and remaining hardware tests.
 For the clickable-spectrum Windows interface, see [the player guide](docs/PLAYER.md).
 Build it with `scripts/windows/build-player.ps1`, then start `RTL DATV Player.cmd`.
 
-On the Pi itself, **RTL DATV Player** opens the native fullscreen touchscreen
+On the Pi itself, **DATVision** opens the native fullscreen touchscreen
 interface. See [the Pi fullscreen player guide](docs/PI_FULLSCREEN_PLAYER.md).
 
 ## Later: remote Raspberry Pi
@@ -58,8 +58,12 @@ is used on Windows and Linux. Build products belong under `build/`.
 
 ## Licence and credits
 
-GPL-3.0-or-later; see [LICENSE](LICENSE). The receiver originates from
-[OnAir](https://github.com/adswill/OnAir). Its GSE, IP and S2X super-frame parts
-are adapted there from DecSAT by Arclamp. Preserve the original copyright and
+GPL-3.0-or-later; see [LICENSE](LICENSE). The DVB-S/S2 decoder is based on
+[OnAir](https://github.com/adswill/OnAir) by Kristijonas Adomaitis (adswill), with
+LDPC decoder optimizations by Evariste Courjaud (F5OEO) and additional DVB-S/S2
+contributions by Arclamp (its GSE, IP and S2X super-frame parts are adapted from
+DecSAT). The BATC spectrum and original signal finder come from HB9IIU
+Experimental H.266 Player; the magic eye follows HB9IIU SDR-Tiouner, inspired by
+the Lynx DATV Receiver (G8YTZ). Preserve the original copyright and
 licence notices and provide the corresponding source when distributing binaries
 as required by the licence.

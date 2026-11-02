@@ -457,7 +457,7 @@ class SettingsPage(QWidget):
     quit = pyqtSignal()
     calibrate = pyqtSignal()
 
-    def __init__(self, credits, version):
+    def __init__(self, credits, version, wordmark=None):
         super().__init__(objectName="settings")
         self.lnb_mhz = 9750.0
         self.gain_db = 40.2
@@ -544,6 +544,11 @@ class SettingsPage(QWidget):
         card.insertLayout(1, self.lo_grid)
 
         self.about_card, card, _ = self.card("about", "About · version " + version, credits)
+        logo = QPixmap(str(wordmark)) if wordmark else QPixmap()
+        if not logo.isNull():
+            picture = QLabel()
+            picture.setPixmap(logo.scaledToHeight(px(48), Qt.SmoothTransformation))
+            card.insertWidget(1, picture)
         quit_button = button(None, "QUIT TO DESKTOP", self.quit, "danger")
         quit_button.setFixedHeight(px(56))
         card.addWidget(quit_button)

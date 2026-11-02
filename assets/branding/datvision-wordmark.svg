@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="420" viewBox="0 0 1500 420">
+<title>DATVision by HB9IIU</title>
+<rect width="1500" height="420" fill="#0c1620"/>
+<svg x="40" y="40" width="340" height="340" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#0c1620"/>
+  <circle cx="256" cy="256" r="189" fill="none" stroke="#284c47" stroke-width="3"/>
+  <circle cx="256" cy="256" r="169" fill="#164c36"/>
+  <circle cx="256" cy="256" r="154" fill="#57f59f"/>
+  <path d="M256 256 L221.3 59 L290.7 59 Z M256 256 L221.3 453 L290.7 453 Z" fill="#0c1620"/>
+  <circle cx="256" cy="256" r="91" fill="#0c1620"/>
+  <circle cx="256" cy="256" r="91" fill="none" stroke="#93ffd0" stroke-width="3"/>
+</svg>
+<text x="435" y="249" font-family="Segoe UI,Arial,sans-serif" font-size="176" font-weight="600"><tspan fill="#edf5fa">DATV</tspan><tspan fill="#57f59f">ision</tspan></text>
+<text x="438" y="351.08" font-family="Segoe UI,Arial,sans-serif" font-size="49.28" fill="#9cb4c5">by HB9IIU</text>
+</svg>

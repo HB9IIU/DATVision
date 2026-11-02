@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RTL DATV Player for Raspberry Pi, by HB9IIU: installer, updater and uninstaller.
+# DATVision for Raspberry Pi, by HB9IIU: installer, updater and uninstaller.
 # GPL-3.0-or-later. Receiver derived from OnAir; see LICENSE and the credits page.
 #
 #   curl -fsSL https://github.com/HB9IIU/WIP/releases/latest/download/install.sh | bash
@@ -40,7 +40,7 @@ stop_player() {
 }
 
 uninstall() {
-  bold "Uninstalling the RTL DATV Player"
+  bold "Uninstalling DATVision"
   note "Removes $APP_DIR, the icon, the autostart entry, the udev rule and the blacklist."
   note "Installed packages (${PACKAGES[*]}) are kept: other programs may use them."
   ask "Continue?" || exit 0
@@ -49,7 +49,7 @@ uninstall() {
   fi
   stop_player
   rm -rf "$APP_DIR"
-  rm -f "$LAUNCHER" "$AUTOSTART" "$DESKTOP_DIR/RTL DATV Player.desktop"
+  rm -f "$LAUNCHER" "$AUTOSTART" "$DESKTOP_DIR/DATVision.desktop" "$DESKTOP_DIR/RTL DATV Player.desktop"
   sudo rm -f "$UDEV_RULE" "$BLACKLIST"
   sudo udevadm control --reload-rules || true
   bold "Uninstalled."
@@ -60,7 +60,7 @@ uninstall() {
 [[ $EUID -ne 0 ]] || fail "run this as your normal user, not with sudo; it asks for the password itself."
 [[ $VERSION != 0.0.0 ]] || fail "this copy of install.sh has no version; download it from the Release page."
 
-bold "RTL DATV Player $VERSION — installer"
+bold "DATVision $VERSION — installer"
 
 # ---- the system
 model=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || echo unknown)
@@ -102,12 +102,12 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${PACKAGES[@]}"
 
 bold "[2/5] Giving you access to the RTL-SDR stick"
 sudo tee "$UDEV_RULE" >/dev/null <<'EOF'
-# RTL-SDR sticks (RTL2832U), for the RTL DATV Player: usable without root.
+# RTL-SDR sticks (RTL2832U), for DATVision: usable without root.
 SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", MODE="0666"
 SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2832", MODE="0666"
 EOF
 sudo tee "$BLACKLIST" >/dev/null <<'EOF'
-# Keep the DVB-T TV driver off the RTL-SDR stick (RTL DATV Player).
+# Keep the DVB-T TV driver off the RTL-SDR stick (DATVision).
 blacklist dvb_usb_rtl28xxu
 blacklist rtl2832
 blacklist rtl2830
@@ -144,16 +144,17 @@ mkdir -p "$(dirname "$LAUNCHER")" "$(dirname "$AUTOSTART")" "$DESKTOP_DIR"
 cat > "$LAUNCHER" <<EOF
 [Desktop Entry]
 Type=Application
-Name=RTL DATV Player
+Name=DATVision
 Comment=DATV receiver with touch spectrum (HB9IIU)
 Exec=/usr/bin/bash "$APP_DIR/scripts/linux/start-pi-player.sh"
 Path=$APP_DIR
-Icon=video-display
+Icon=$APP_DIR/assets/branding/datvision-icon.png
 Terminal=false
 Categories=AudioVideo;Video;HamRadio;
 EOF
-cp "$LAUNCHER" "$DESKTOP_DIR/RTL DATV Player.desktop"
-chmod u+x "$LAUNCHER" "$DESKTOP_DIR/RTL DATV Player.desktop"
+rm -f "$DESKTOP_DIR/RTL DATV Player.desktop"   # the name before DATVision
+cp "$LAUNCHER" "$DESKTOP_DIR/DATVision.desktop"
+chmod u+x "$LAUNCHER" "$DESKTOP_DIR/DATVision.desktop"
 sed 's|start-pi-player.sh"|start-pi-player.sh" --autostart|' "$LAUNCHER" > "$AUTOSTART"
 note "Icon on the desktop; starts by itself with the desktop."
 
@@ -169,7 +170,7 @@ else
   note "No RTL-SDR stick found. Plug it in before starting the player."
 fi
 
-bold "Done: RTL DATV Player $VERSION"
-note "Start it with the RTL DATV Player icon on the desktop; from now on it also starts"
+bold "Done: DATVision $VERSION"
+note "Start it with the DATVision icon on the desktop; from now on it also starts"
 note "by itself with the desktop. Remove it again with:  bash install.sh --uninstall"
 note "(get install.sh again from https://github.com/$REPO/releases/latest)"

@@ -4,7 +4,7 @@ The connected DSI-2 screen was detected as **1024 x 600**, scale 1.0,
 58.586 Hz. The Qt application reads the screen geometry at startup and opens
 fullscreen; its layout scales with the available space.
 
-Double-click **RTL DATV Player** on the Pi desktop. This is a native Linux
+Double-click **DATVision** on the Pi desktop. This is a native Linux
 interface running on the Pi, not the Windows player or a remote video window.
 Capture, DVB decoding, video and audio all run on the Pi.
 

@@ -27,11 +27,12 @@ bash scripts/linux/build.sh
 out=build/release
 stage=$out/pi-datv-rx
 rm -rf "$out"
-mkdir -p "$stage/build/linux" "$stage/ui/pi_player" "$stage/scripts/linux" "$stage/docs"
+mkdir -p "$stage/build/linux" "$stage/ui/pi_player" "$stage/scripts/linux" "$stage/docs" "$stage/assets/branding"
 cp build/linux/datvrx build/linux/rtl_iq build/linux/rtl_sweep "$stage/build/linux/"
 cp -L "$driver_lib" "$stage/build/linux/librtlsdr.so.0"   # found through the tools' $ORIGIN runpath
 cp ui/pi_player/*.py "$stage/ui/pi_player/"
 cp scripts/linux/start-pi-player.sh scripts/linux/preview-layout.sh "$stage/scripts/linux/"
+cp assets/branding/*.png assets/branding/*.svg assets/branding/README.md "$stage/assets/branding/"
 cp LICENSE "$stage/"
 cp docs/PI_FULLSCREEN_PLAYER.md "$stage/docs/"
 printf '%s\n' "$version" > "$stage/VERSION"

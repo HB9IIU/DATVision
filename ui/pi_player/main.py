@@ -36,11 +36,12 @@ NO_STICK = "RTL-SDR stick not found\n\nUnplug it and plug it back in.\nReception
 STICK_BUSY = "RTL-SDR stick is busy\n\nUnplug it and plug it back in.\nIf that does not help, restart the Pi."
 SIGNAL_LOST_NOTICE_S = 3   # replace the frozen picture with a clear message
 SIGNAL_LOST_GIVE_UP_S = 30  # LOCAL: stop waiting for the station and scan the band again
-CREDITS = ("HB9IIU RTL DATV Player · GPL v3; source and notices in the project.\n"
-           "Receiver: OnAir-derived C++/Rust datvrx. Spectrum detection adapted from HB9IIU "
-           "Experimental H.266 Player. Magic eye after HB9IIU SDR-Tiouner, inspired by the Lynx DATV "
-           "Receiver by G8YTZ. Spectrum: BATC remote reference; quality: local RTL-SDR. "
-           "Video: system libVLC. Interface: PyQt5.")
+CREDITS = ("DATVision by HB9IIU · GPL v3; see LICENSE and the bundled source and notices.\n"
+           "DVB-S/S2 decoder based on OnAir by Kristijonas Adomaitis (adswill). LDPC decoder "
+           "optimizations by Evariste Courjaud (F5OEO). Additional DVB-S/S2 contributions by Arclamp. "
+           "BATC spectrum and original signal finder from HB9IIU Experimental H.266 Player. Magic eye "
+           "after HB9IIU SDR-Tiouner, inspired by the Lynx DATV Receiver (G8YTZ). "
+           "Video: mpv (libVLC fallback). Interface: PyQt5.")
 STYLE = """
     QMainWindow, QWidget#surface, QWidget#settings { background: #0c1620; color: #dde8f1; }
     QFrame#panel { background: #102331; border: 1px solid #1d3647; border-radius: 6px; }
@@ -137,7 +138,7 @@ class Player(QMainWindow):
         self.stick_busy = False
         self.waiting_for_stick = False
         self.stick_seen = 0
-        self.setWindowTitle("HB9IIU · RTL DATV · Raspberry Pi")
+        self.setWindowTitle("DATVision by HB9IIU")
         self.setStyleSheet(ui_scale.style(STYLE))
         self.pages = QStackedWidget()
         self.setCentralWidget(self.pages)
@@ -176,7 +177,7 @@ class Player(QMainWindow):
         self.surface_layout.addWidget(self.spectrum)
         version_file = root / "VERSION"
         version = version_file.read_text().strip() if version_file.exists() else "development"
-        self.settings = SettingsPage(CREDITS, version)
+        self.settings = SettingsPage(CREDITS, version, root / "assets/branding/datvision-wordmark.png")
         self.pages.addWidget(self.settings)
         self.bands_page = BandsPage(bands.BANDS, CREDITS)
         self.pages.addWidget(self.bands_page)
