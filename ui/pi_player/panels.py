@@ -3,6 +3,7 @@ import math
 import time
 from PyQt5.QtCore import Qt, pyqtSignal, QPointF, QRectF, QSize, QTimer
 from PyQt5.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
+from PyQt5.QtNetwork import QTcpSocket
 from PyQt5.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QSizePolicy,
                              QStackedWidget, QScrollArea, QScroller)
 from magic_eye import MagicEye
@@ -248,6 +249,25 @@ def symbol_icon(kind, color):
             p.restore()
         p.drawEllipse(QPointF(32, 32), 14, 14)
         p.drawEllipse(QPointF(32, 32), 4, 4)
+    p.end()
+    return QIcon(pixmap)
+
+
+def globe_icon(state):
+    """Internet for BATC: 'online' green, 'offline' red and crossed out, 'checking' grey."""
+    color = {"online": "#57f59f", "offline": "#ff6b6b"}.get(state, "#7f93a3")
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(QPen(QColor(color), 4.5, Qt.SolidLine, Qt.RoundCap))
+    p.drawEllipse(QPointF(32, 32), 24, 24)
+    p.drawEllipse(QRectF(21, 8, 22, 48))
+    p.drawLine(QPointF(8, 32), QPointF(56, 32))
+    p.drawLine(QPointF(32, 8), QPointF(32, 56))
+    if state == "offline":
+        p.setPen(QPen(QColor(color), 6, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(QPointF(8, 56), QPointF(56, 8))
     p.end()
     return QIcon(pixmap)
 
@@ -636,6 +656,15 @@ class SettingsPage(QWidget):
             row.addWidget(widget)
             self.source_buttons[source] = widget
         card.insertLayout(1, row)
+        self.source_buttons["batc"].setIconSize(QSize(px(26), px(26)))
+        self.internet_note = label(card, "value")
+        card.insertWidget(2, self.internet_note)
+        # BATC needs the internet: try its server whenever the settings open.
+        self.probe = QTcpSocket(self)
+        self.probe.connected.connect(lambda: self.show_internet("online"))
+        self.probe.error.connect(lambda _: self.show_internet("offline"))
+        self.probe_timer = QTimer(self, singleShot=True, interval=4000)
+        self.probe_timer.timeout.connect(lambda: self.show_internet("offline"))
 
         self.gain_card, card, _ = self.card("gain", "RF gain",
             "Lower it if strong signals overload the stick, raise it for weak stations.")
@@ -657,6 +686,7 @@ class SettingsPage(QWidget):
         self.lnb_card, card, _ = self.card("dish", "LNB oscillator",
             "Measured on the QO-100 beacon: five locks, deliberately detuned.")
         self.lnb = label(card, "big")
+        self.lnb.setAlignment(Qt.AlignCenter)
         card.insertWidget(1, self.lnb)
         row = QHBoxLayout()
         row.setSpacing(px(8))
@@ -739,6 +769,22 @@ class SettingsPage(QWidget):
         example = (self.band.start_mhz + self.band.end_mhz) / 2
         self.lo_note.setText("The stick receives RF − LO: %g MHz is tuned at %g MHz." % (example, example - lo_mhz))
 
+    def check_internet(self):
+        self.show_internet("checking")
+        self.probe.abort()
+        self.probe.connectToHost("eshail.batc.org.uk", 443)
+        self.probe_timer.start()
+
+    def show_internet(self, state):
+        if state != "checking":
+            self.probe_timer.stop()
+            self.probe.abort()
+        self.source_buttons["batc"].setIcon(globe_icon(state))
+        self.internet_note.setText({"online": "Internet OK: BATC spectrum available.",
+                                    "offline": "No internet: BATC is not reachable, use LOCAL SCAN.",
+                                    "checking": "Checking the internet…"}[state])
+        self.internet_note.setStyleSheet("color: %s;" % {"online": "#57f59f", "offline": "#ff9b9b"}.get(state, "#9cb4c5"))
+
     def set_source(self, source):
         self.source = source
         for name, widget in self.source_buttons.items():
@@ -753,6 +799,8 @@ class SettingsPage(QWidget):
     def load(self, lnb_mhz, gain_db, source, band, lo_mhz, network_on=False, network_vlc=""):
         self.network_vlc = network_vlc
         self.set_network(network_on)
+        if band.via_lnb:
+            self.check_internet()
         self.title.setText("Settings · " + band.name)
         self.arrange(band)
         self.band = band
