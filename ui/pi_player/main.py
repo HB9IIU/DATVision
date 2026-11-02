@@ -37,7 +37,7 @@ REPORT = re.compile(r"(DVB-S2X|DVB-S2|DVB-S) (\S+) (\d+/\d+)\S*(?: short)?(?: pi
 RTL_SDR_IDS = {("0bda", "2838"), ("0bda", "2832")}
 PLUTO_IDS = {("0456", "b673")}   # ADALM-Pluto and clones such as the PlutoSky
 NO_STICK = "RTL-SDR stick not found\n\nUnplug it and plug it back in.\nReception resumes by itself."
-NO_PLUTO = "Pluto not found\n\nIt needs its own power supply on the PWR socket.\nReception resumes by itself."
+NO_PLUTO = "Pluto not found\n\nCheck its power supply and its USB or network cable.\nReception resumes by itself."
 STICK_BUSY = "RTL-SDR stick is busy\n\nUnplug it and plug it back in.\nIf that does not help, restart the Pi."
 PLUTO_NO_SCAN = "The local scan needs the RTL-SDR stick\n\nWith the Pluto, QO-100 with the BATC spectrum\nworks; other bands follow."
 SIGNAL_LOST_NOTICE_S = 3   # replace the frozen picture with a clear message
@@ -320,6 +320,16 @@ class Player(QMainWindow):
             return "batc"
         return self.spectrum_source if self.band.via_lnb else "local"
 
+    def device_present(self):
+        # A Pluto on the network (ip:…) is not on USB: ask its IIO server instead.
+        if self.device == "pluto" and self.pluto_uri.startswith("ip:"):
+            try:
+                with socket.create_connection((self.pluto_uri[3:], 30431), timeout=0.3):
+                    return True
+            except OSError:
+                return False
+        return stick_present(self.device)
+
     def show_missing_device(self):
         if self.device == "pluto":
             self.show_problem(NO_PLUTO, "NO PLUTO", True)
@@ -338,7 +348,7 @@ class Player(QMainWindow):
             self.sweeper.stop()
             self.show_problem(PLUTO_NO_SCAN, "PLUTO", False)
             return
-        if not stick_present(self.device):
+        if not self.device_present():
             self.show_missing_device()
             return
         start, end = self.zoom or (self.band.start_mhz, self.band.end_mhz)
@@ -356,7 +366,7 @@ class Player(QMainWindow):
         if sweep_id != self.sweep_id:
             return
         self.sweeper.stop()
-        if not stick_present(self.device):
+        if not self.device_present():
             self.show_missing_device()
         else:
             self.show_problem("Spectrum scan stopped\n\nPress START or BEACON", "ERROR", False)
@@ -417,7 +427,7 @@ class Player(QMainWindow):
         self.tuned_at = time.monotonic()
         self.leave_replay()
         self.last_signal = signal
-        if not stick_present(self.device):
+        if not self.device_present():
             self.show_missing_device()
             return
         # Answer the tap on screen first, then swap the receiver.
@@ -527,7 +537,7 @@ class Player(QMainWindow):
     def on_failure(self, session_id, message):
         if session_id != self.session_id:
             return
-        if not stick_present(self.device):
+        if not self.device_present():
             self.show_missing_device()
         elif self.stick_busy:
             self.show_problem(STICK_BUSY, "STICK BUSY", False)
@@ -553,14 +563,14 @@ class Player(QMainWindow):
             return
         if self.waiting_for_stick:
             # Give a replugged stick two seconds to settle before opening it.
-            self.stick_seen = self.stick_seen + 1 if stick_present(self.device) else 0
+            self.stick_seen = self.stick_seen + 1 if self.device_present() else 0
             if self.stick_seen >= 2:
                 self.waiting_for_stick = False
                 self.start_scan() if self.effective_source() == "local" else self.tune(self.last_signal)
             return
         if not self.current:
             return
-        if not stick_present(self.device):
+        if not self.device_present():
             self.show_missing_device()
             return
         step = self.calibration
