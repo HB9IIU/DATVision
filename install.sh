@@ -2,7 +2,7 @@
 # DATVision for Raspberry Pi, by HB9IIU: installer, updater and uninstaller.
 # GPL-3.0-or-later. Receiver derived from OnAir; see LICENSE and the credits page.
 #
-#   curl -fsSL https://github.com/HB9IIU/WIP/releases/latest/download/install.sh | bash
+#   curl -fsSL https://github.com/HB9IIU/DATVision/releases/latest/download/install.sh | bash
 #   bash install.sh               install, or update keeping your settings
 #                                 (uses the package next to install.sh if it is there,
 #                                 for testing a version that is not on GitHub yet)
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 VERSION=0.0.0   # filled in by scripts/linux/make-release.sh
-REPO=HB9IIU/WIP
+REPO=HB9IIU/DATVision
 APP_DIR="$HOME/pi-datv-rx"
 ARCHIVE="pi-datv-rx-$VERSION-arm64.tar.gz"
 URL="https://github.com/$REPO/releases/download/v$VERSION"
