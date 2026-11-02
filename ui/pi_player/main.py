@@ -26,6 +26,7 @@ from sweeper import Sweeper
 from spectrum import Spectrum
 from receiver import Receiver
 from video import Video
+import mpv_video
 from panels import GREEN, AMBER, RED, DIM, GAINS, REQUIRED_ESN0, InfoPanel, ControlPanel, SettingsPage, BandsPage
 
 REPORT = re.compile(r"(DVB-S2X|DVB-S2|DVB-S) (\S+) (\d+/\d+)\S*(?: short)?(?: pilots)?\s+[\d.]+ Msym/s"
@@ -199,7 +200,12 @@ class Player(QMainWindow):
         self.sweeper.failed.connect(self.on_sweep_failure)
         self.receiver.status.connect(self.on_status)
         self.receiver.failed.connect(self.on_failure)
-        self.video = Video(self.video_surface.winId())
+        # mpv draws the video; libVLC remains as a fallback (no mpv, or DATVRX_VIDEO=vlc).
+        if mpv_video.AVAILABLE and os.environ.get("DATVRX_VIDEO") != "vlc":
+            self.video = mpv_video.MpvVideo(self.video_surface.winId(), root / "test-output/pi-player-video.log",
+                                            plain_output=SLOW_PI)
+        else:
+            self.video = Video(self.video_surface.winId())
         # VLC ignores the pointer, so taps on the picture reach Qt.
         self.video_surface.installEventFilter(self)
         self.placeholder.installEventFilter(self)
@@ -242,7 +248,8 @@ class Player(QMainWindow):
         screen = self.screen()
         print("DISPLAY: %dx%d, %.2f Hz, scale %.2f%s" % (screen.size().width(), screen.size().height(), screen.refreshRate(),
                                                        ui_scale.scale, " · preview" if preview else ""), flush=True)
-        print("PI: %s%s" % (pi_model() or "unknown", " · real-time receiver" if SLOW_PI else ""), flush=True)
+        print("PI: %s%s · video: %s" % (pi_model() or "unknown", " · real-time receiver" if SLOW_PI else "",
+                                       "mpv" if isinstance(self.video, mpv_video.MpvVideo) else "libVLC"), flush=True)
         QTimer.singleShot(200, lambda: self.spectrum.set_source(self.effective_source()))
         QTimer.singleShot(500, self.start_default)
 

@@ -63,6 +63,17 @@ The spectrum needs internet and represents BATC reception; quality readouts
 come from the local receiver. Stale spectrum data cannot trigger tuning.
 Signals above 1500 kS/s are rejected for this RTL-SDR setup.
 
+## Video engine
+
+Video is drawn by mpv (one process per stream, embedded in the video area and
+driven through its IPC socket; `ui/pi_player/mpv_video.py`). libVLC remains as
+a fallback when mpv is missing or with `DATVRX_VIDEO=vlc`. Raspberry Pi's VLC
+build could not display the beacon (H.264 1280x720 at 50 fps) on a Pi 4
+("failed to create video converter"); mpv plays it there with all pictures
+shown, using its plain X11 output on a Pi 4 and the GPU output elsewhere.
+`DATVRX_MPV_OPTIONS` adds mpv options for diagnosis; mpv messages go to
+`test-output/pi-player-video.log`.
+
 ## Other screen sizes
 
 The layout is designed for 1024 x 600 and scaled to the screen at start
