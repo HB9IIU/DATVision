@@ -12,6 +12,9 @@ only: no mouse, keyboard or text entry is needed.
   sizes, from 800 x 480 upwards.
 - An RTL-SDR stick: RTL-SDR Blog V4 (R828D) or an R820T stick.
 - For QO-100: a dish with a powered LNB. For 6 cm: a downconverter (see Bands).
+- For sound, simply pair a **Bluetooth speaker** with the Pi (Bluetooth icon in
+  the desktop's top bar). DATVision plays through the Pi's current audio output,
+  so HDMI or a USB sound card work as well.
 
 ## Install, update, remove
 

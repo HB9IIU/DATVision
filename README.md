@@ -43,6 +43,10 @@ curl -fsSL https://github.com/HB9IIU/DATVision/releases/latest/download/install.
 The same command updates an existing installation and keeps its settings.
 See the [Raspberry Pi guide](docs/raspberry-pi.md).
 
+**Sound:** the simplest way is to pair a **Bluetooth speaker** with the Pi
+(Bluetooth icon in the top bar of the desktop). DATVision plays through
+whatever audio output the Pi uses.
+
 ## Windows
 
 Windows 10/11 x64 and an RTL-SDR stick with the WinUSB driver (installed once
