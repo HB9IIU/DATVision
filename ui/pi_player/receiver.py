@@ -1,9 +1,31 @@
 """Local Pi capture/decoder lifecycle. The transport stream stays on this Pi."""
 import ctypes
+import ipaddress
+import re
 import signal
 import socket
 import subprocess
 import threading
+
+
+DEFAULT_STREAM = "udp://239.255.42.42:1234"   # as the Windows version
+
+
+def udp_endpoint(text):
+    """(address, port) of udp://IPv4:port (udp://@… accepted); ValueError otherwise."""
+    found = re.fullmatch(r"udp://@?(\d+\.\d+\.\d+\.\d+):(\d+)", text.strip())
+    if not found:
+        raise ValueError("udp://IPv4:port expected, for example " + DEFAULT_STREAM)
+    address, port = ipaddress.IPv4Address(found.group(1)), int(found.group(2))
+    if address.is_unspecified or address == ipaddress.IPv4Address("255.255.255.255") or not 1 <= port <= 65535:
+        raise ValueError("not a usable destination: " + text)
+    return str(address), port
+
+
+def vlc_address(endpoint):
+    # What to open in VLC on the receiving PC: the group for multicast, else the port.
+    address, port = endpoint
+    return "udp://@%s:%d" % (address, port) if ipaddress.IPv4Address(address).is_multicast else "udp://@:%d" % port
 
 
 def end_with_player():
@@ -29,6 +51,7 @@ class Receiver(QObject):
         self.record_file = None
         self.record_path = None
         self.recorded = 0
+        self.stream_to = None   # (address, port) on the home network, or None
         self.stuck = []
 
     @property
@@ -78,6 +101,11 @@ class Receiver(QObject):
 
     def deliver(self, session, decoder, port):
         udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        network = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # One hop only: the stream stays on the home network.
+        network.setsockopt(socket.IPPROTO_IP, socket.IP_TTL, 1)
+        network.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
+        network_failed = False
         try:
             while not session["stop"].is_set():
                 data = decoder.stdout.read(188 * 7)
@@ -85,6 +113,13 @@ class Receiver(QObject):
                     break
                 session["info"].feed(data)
                 udp.sendto(data, ("127.0.0.1", port))
+                destination = self.stream_to
+                if destination and not network_failed:
+                    try:
+                        network.sendto(data, destination)   # seven whole TS packets, 1316 bytes
+                    except OSError as error:
+                        network_failed = True
+                        self.status.emit(session["id"], "Network stream error: %s" % error.strerror)
                 if self.record_file is not None:
                     with self.record_lock:
                         if self.record_file is not None:
@@ -94,6 +129,7 @@ class Receiver(QObject):
             pass
         finally:
             udp.close()
+            network.close()
             if not session["stop"].is_set():
                 self.failed.emit(session["id"], "Reception ended · tap a signal to retry")
 

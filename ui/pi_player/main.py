@@ -24,12 +24,12 @@ from ui_scale import px
 from signal_finder import BEACON_MHZ, Signal
 from sweeper import Sweeper
 from spectrum import Spectrum
-from receiver import Receiver
+from receiver import Receiver, DEFAULT_STREAM, udp_endpoint, vlc_address
 from video import Video
 import shutil
 from ts_info import TsInfo, callsign
 import mpv_video
-from panels import GREEN, AMBER, RED, DIM, GAINS, REQUIRED_ESN0, InfoPanel, ControlPanel, SettingsPage, BandsPage, RecordingsPage
+from panels import GREEN, AMBER, RED, DIM, GAINS, REQUIRED_ESN0, InfoPanel, ControlPanel, SettingsPage, BandsPage, RecordingsPage, AboutPage
 
 REPORT = re.compile(r"(DVB-S2X|DVB-S2|DVB-S) (\S+) (\d+/\d+)\S*(?: short)?(?: pilots)?\s+[\d.]+ Msym/s"
                     r"\s+Es/N0 ([\d.-]+) dB\s+ok \d+\s+bad (\d+)")
@@ -111,6 +111,7 @@ class Player(QMainWindow):
         self.los = {}     # chosen converter LO per band
         self.indicator = "eye"
         self.spectrum_source = "batc"   # QO-100 default; LOCAL scans with the stick
+        self.stream_on, self.stream_to = False, udp_endpoint(DEFAULT_STREAM)   # live reception to the home network
         try:
             settings = json.loads(self.settings_path.read_text())
             self.volume = max(0, min(100, int(settings.get("volume", 40))))
@@ -121,6 +122,11 @@ class Player(QMainWindow):
             if "gain_db" in settings and "qo100" not in self.gains:   # saved before bands existed
                 self.gains["qo100"] = max(0, min(49.6, float(settings["gain_db"])))
             self.band = bands.BY_KEY.get(settings.get("band"), self.band)
+            self.stream_on = bool(settings.get("udp_enabled", False))
+            try:   # no keyboard on the Pi: another destination is set in this file
+                self.stream_to = udp_endpoint(settings.get("udp_destination", DEFAULT_STREAM))
+            except ValueError:
+                pass
             self.los = {key: float(value) for key, value in settings.get("los", {}).items()
                         if key in bands.BY_KEY and float(value) in bands.BY_KEY[key].converter_los}
             self.indicator = "constellation" if settings.get("indicator") == "constellation" else "eye"
@@ -181,7 +187,12 @@ class Player(QMainWindow):
         self.surface_layout.addWidget(self.spectrum)
         version_file = root / "VERSION"
         version = version_file.read_text().strip() if version_file.exists() else "development"
-        self.settings = SettingsPage(CREDITS, version, root / "assets/branding/datvision-wordmark.png")
+        self.settings = SettingsPage()
+        self.about_page = AboutPage(CREDITS, version, root / "assets/branding/datvision-wordmark.png")
+        self.pages.addWidget(self.about_page)
+        self.settings.about.connect(lambda: self.pages.setCurrentWidget(self.about_page))
+        self.about_page.back.connect(lambda: self.pages.setCurrentWidget(self.settings))
+        self.about_page.quit.connect(self.close)
         self.pages.addWidget(self.settings)
         self.bands_page = BandsPage(bands.BANDS, CREDITS)
         self.pages.addWidget(self.bands_page)
@@ -203,6 +214,7 @@ class Player(QMainWindow):
         self.gain_timer.timeout.connect(self.apply_gain)
 
         self.receiver = Receiver(root, realtime=SLOW_PI)
+        self.receiver.stream_to = self.stream_to if self.stream_on else None
         # LOCAL spectrum: the stick sweeps the band until a signal is tapped.
         self.sweeper = Sweeper(root)
         self.sweep_id = 0
@@ -233,7 +245,6 @@ class Player(QMainWindow):
         self.controls.record.connect(self.toggle_recording)
         self.settings.done.connect(self.close_settings)
         self.settings.calibrate.connect(self.start_calibration)
-        self.settings.quit.connect(self.close)
         self.controls.show_audio(self.volume, self.muted)
         # Development keys; the touchscreen needs none of them.
         QShortcut(QKeySequence("F11"), self, activated=self.toggle_fullscreen)
@@ -668,11 +679,17 @@ class Player(QMainWindow):
             self.last_signal = Signal(BEACON_MHZ, 1500)
 
     def open_settings(self):
-        self.settings.load(self.lnb_mhz, self.gain_db, self.spectrum_source, self.band, self.lo_mhz())
+        self.settings.load(self.lnb_mhz, self.gain_db, self.spectrum_source, self.band, self.lo_mhz(),
+                           self.stream_on, vlc_address(self.stream_to))
         self.pages.setCurrentWidget(self.settings)
 
     def close_settings(self):
         self.pages.setCurrentIndex(0)
+        if self.settings.network_on != self.stream_on:
+            self.stream_on = self.settings.network_on
+            self.receiver.stream_to = self.stream_to if self.stream_on else None   # applies at once
+            print("NETWORK STREAM: %s" % ("%s:%d" % self.stream_to if self.stream_on else "off"), flush=True)
+            self.save_settings()
         if self.settings.source != self.spectrum_source:
             self.spectrum_source = self.settings.source
             print("SPECTRUM: " + self.spectrum_source, flush=True)
@@ -836,7 +853,9 @@ class Player(QMainWindow):
         try:
             self.settings_path.write_text(json.dumps({"volume": self.volume, "muted": self.muted,
                                                       "lnb_mhz": self.lnb_mhz, "gains": self.gains, "los": self.los, "band": self.band.key,
-                                                      "indicator": self.indicator, "spectrum": self.spectrum_source}, indent=2))
+                                                      "indicator": self.indicator, "spectrum": self.spectrum_source,
+                                                      "udp_enabled": self.stream_on,
+                                                      "udp_destination": "udp://%s:%d" % self.stream_to}, indent=2))
         except OSError:
             pass
 

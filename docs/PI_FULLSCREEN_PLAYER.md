@@ -58,6 +58,12 @@ The video sits between two columns that use the letterbox space.
   end of the file returns to reception. DELETE removes a file after a second tap.
   Swipe to scroll. There is no STOP button: TAP TO RESCAN, a tap on another
   station or BEACON change reception, and ⏻ quits.
+- **Network stream** (Settings, every band): ON sends live reception to the home
+  network as on Windows, by default multicast `udp://239.255.42.42:1234` with
+  one hop; in VLC on a PC open `udp://@239.255.42.42:1234`. Recordings played
+  back are not sent. Without a keyboard, another destination (multicast group
+  or a PC's address) is set as `udp_destination` in `pi-player-settings.json`.
+- Settings has an ABOUT page with the logo, credits, version and quit.
 - The right column ends with ⚙ (Settings, where the band has any) and ⏻ (quit to
   the desktop): the first tap turns it into QUIT?, a second tap within 3 s quits.
 - New installations start with the BATC spectrum on QO-100 (straight to the

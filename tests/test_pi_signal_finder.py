@@ -136,5 +136,16 @@ class CallsignChecks(unittest.TestCase):
         self.assertEqual(callsign("QO-100 beacon"), "")
 
 
+
+class NetworkStreamChecks(unittest.TestCase):
+    def test_destinations_as_in_the_windows_version(self):
+        from receiver import udp_endpoint, vlc_address, DEFAULT_STREAM
+        self.assertEqual(vlc_address(udp_endpoint(DEFAULT_STREAM)), "udp://@239.255.42.42:1234")
+        self.assertEqual(vlc_address(udp_endpoint("udp://@192.168.0.20:5000")), "udp://@:5000")
+        for bad in ("udp://0.0.0.0:1234", "udp://255.255.255.255:1234", "udp://1.2.3.4:0", "http://1.2.3.4:80", ""):
+            with self.assertRaises(ValueError):
+                udp_endpoint(bad)
+
+
 if __name__ == "__main__":
     unittest.main()

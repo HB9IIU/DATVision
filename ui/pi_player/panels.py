@@ -272,6 +272,12 @@ def card_icon(kind):
         p.drawLine(QPointF(3, 32), QPointF(15, 32))
         p.drawPolygon(QPolygonF([QPointF(15, 12), QPointF(15, 52), QPointF(49, 32)]))
         p.drawLine(QPointF(49, 32), QPointF(61, 32))
+    elif kind == "network":
+        p.drawLine(QPointF(32, 30), QPointF(32, 58))
+        p.drawEllipse(QPointF(32, 26), 4, 4)
+        for radius in (12, 22):
+            p.drawArc(QRectF(32 - radius, 26 - radius, 2 * radius, 2 * radius), -45 * 16, 90 * 16)
+            p.drawArc(QRectF(32 - radius, 26 - radius, 2 * radius, 2 * radius), 135 * 16, 90 * 16)
     elif kind == "mixer":
         p.drawEllipse(QPointF(32, 32), 22, 22)
         p.drawLine(QPointF(17, 17), QPointF(47, 47))
@@ -385,7 +391,7 @@ class ControlPanel(QFrame):
 
     def show_band(self, band):
         self.beacon_button.setVisible(bool(band.beacon_mhz))
-        self.settings_button.setVisible(band.via_lnb or bool(band.converter_los))
+        self.settings_button.setVisible(True)   # every band: at least gain and the network stream
         self.gain.setVisible(not band.via_lnb)
         self.fit_rows()
 
@@ -551,12 +557,38 @@ class RecordingsPage(QWidget):
         widget.setText("DELETE?")
 
 
-class SettingsPage(QWidget):
-    done = pyqtSignal()
+class AboutPage(QWidget):
+    back = pyqtSignal()
     quit = pyqtSignal()
-    calibrate = pyqtSignal()
 
     def __init__(self, credits, version, wordmark=None):
+        super().__init__(objectName="settings")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(px(24), px(16), px(24), px(16))
+        layout.setSpacing(px(14))
+        top = QHBoxLayout()
+        label(top, "title", "About · version " + version)
+        top.addStretch()
+        button(top, "BACK", self.back).setFixedSize(px(150), px(60))
+        layout.addLayout(top)
+        logo = QPixmap(str(wordmark)) if wordmark else QPixmap()
+        if not logo.isNull():
+            picture = QLabel()
+            picture.setPixmap(logo.scaledToHeight(px(110), Qt.SmoothTransformation))
+            layout.addWidget(picture, 0, Qt.AlignHCenter)
+        text = label(layout, "value", credits)
+        text.setWordWrap(True)
+        layout.addStretch()
+        quit_button = button(layout, "QUIT TO DESKTOP", self.quit, "danger")
+        quit_button.setFixedHeight(px(60))
+
+
+class SettingsPage(QWidget):
+    done = pyqtSignal()
+    calibrate = pyqtSignal()
+    about = pyqtSignal()
+
+    def __init__(self):
         super().__init__(objectName="settings")
         self.lnb_mhz = 9750.0
         self.gain_db = 40.2
@@ -574,6 +606,11 @@ class SettingsPage(QWidget):
         label(heading, "caption", "Changes are applied when you press DONE.")
         top.addLayout(heading)
         top.addStretch()
+        about = button(top, " ABOUT", self.about)
+        about.setFixedSize(px(150), px(60))
+        about.setIcon(card_icon("about"))   # drawn: the font has no ⓘ
+        about.setIconSize(QSize(px(22), px(22)))
+        top.addSpacing(px(8))
         button(top, "DONE", self.done, "accent").setFixedSize(px(150), px(60))
         layout.addLayout(top)
 
@@ -642,15 +679,25 @@ class SettingsPage(QWidget):
         self.lo_grid.setSpacing(px(8))
         card.insertLayout(1, self.lo_grid)
 
-        self.about_card, card, _ = self.card("about", "About · version " + version, credits)
-        logo = QPixmap(str(wordmark)) if wordmark else QPixmap()
-        if not logo.isNull():
-            picture = QLabel()
-            picture.setPixmap(logo.scaledToHeight(px(48), Qt.SmoothTransformation))
-            card.insertWidget(1, picture)
-        quit_button = button(None, "QUIT TO DESKTOP", self.quit, "danger")
-        quit_button.setFixedHeight(px(56))
-        card.addWidget(quit_button)
+        # Live reception to the home network, as in the Windows version (no replay).
+        self.network_on, self.network_vlc = False, ""
+        self.network_card, card, _ = self.card("network", "Network stream",
+            "Sends live reception to the home network: watch it in VLC on any PC there "
+            "(Media → Open Network Stream). Guest Wi-Fi may block multicast.")
+        row = QHBoxLayout()
+        row.setSpacing(px(8))
+        self.network_buttons = {}
+        for on, text in ((False, "OFF"), (True, "ON")):
+            widget = QPushButton(text)
+            widget.setCheckable(True)
+            widget.setFocusPolicy(Qt.NoFocus)
+            widget.setFixedHeight(px(56))
+            widget.clicked.connect(lambda _, on=on: self.set_network(on))
+            row.addWidget(widget)
+            self.network_buttons[on] = widget
+        card.insertLayout(1, row)
+        self.network_address = label(card, "value")
+        card.insertWidget(2, self.network_address)
         layout.addStretch()
 
     def card(self, icon, title, hint):
@@ -675,8 +722,8 @@ class SettingsPage(QWidget):
 
     def arrange(self, band):
         cards = ([self.spectrum_card, self.lnb_card, self.gain_card] if band.via_lnb else
-                 [self.gain_card, self.converter_card] if band.converter_los else [self.gain_card]) + [self.about_card]
-        for frame in (self.spectrum_card, self.lnb_card, self.gain_card, self.converter_card, self.about_card):
+                 [self.gain_card, self.converter_card] if band.converter_los else [self.gain_card]) + [self.network_card]
+        for frame in (self.spectrum_card, self.lnb_card, self.gain_card, self.converter_card, self.network_card):
             self.grid.removeWidget(frame)
             frame.hide()
         for index, frame in enumerate(cards):
@@ -697,7 +744,15 @@ class SettingsPage(QWidget):
         for name, widget in self.source_buttons.items():
             widget.setChecked(name == source)
 
-    def load(self, lnb_mhz, gain_db, source, band, lo_mhz):
+    def set_network(self, on):
+        self.network_on = on
+        for state, widget in self.network_buttons.items():
+            widget.setChecked(state == on)
+        self.network_address.setText("In VLC:  " + self.network_vlc)
+
+    def load(self, lnb_mhz, gain_db, source, band, lo_mhz, network_on=False, network_vlc=""):
+        self.network_vlc = network_vlc
+        self.set_network(network_on)
         self.title.setText("Settings · " + band.name)
         self.arrange(band)
         self.band = band
