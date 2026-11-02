@@ -283,6 +283,7 @@ class Player(QMainWindow):
         print("DISPLAY: %dx%d, %.2f Hz, scale %.2f%s" % (screen.size().width(), screen.size().height(), screen.refreshRate(),
                                                        ui_scale.scale, " · preview" if preview else ""), flush=True)
         self.h266 = isinstance(self.video, mpv_video.MpvVideo) and decodes_h266()
+        self.about_page.show_h266(self.h266)
         print("PI: %s%s · video: %s%s" % (pi_model() or "unknown", " · real-time receiver" if SLOW_PI else "",
                                          "mpv" if isinstance(self.video, mpv_video.MpvVideo) else "libVLC",
                                          " · H.266" if self.h266 else " · no H.266 decoder"), flush=True)

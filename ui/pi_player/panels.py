@@ -603,7 +603,19 @@ class AboutPage(QWidget):
             picture.setPixmap(logo.scaledToHeight(px(96), Qt.SmoothTransformation))
             layout.addWidget(picture, 0, Qt.AlignHCenter)
         layout.addWidget(QLabel("Version " + version, objectName="version"), 0, Qt.AlignHCenter)
-        layout.addSpacing(px(10))
+        # Which video this Pi can show: H.266 needs FFmpeg 7 (Raspberry Pi OS Trixie).
+        codecs = QHBoxLayout()
+        codecs.setSpacing(px(12))
+        codecs.addStretch()
+        self.h266_badge = QLabel("H.266 · VVC")
+        self.h266_badge.setAlignment(Qt.AlignCenter)
+        codecs.addWidget(self.h266_badge)
+        self.h266_note = QLabel(objectName="role")
+        codecs.addWidget(self.h266_note)
+        codecs.addStretch()
+        layout.addLayout(codecs)
+        self.show_h266(False)
+        layout.addSpacing(px(6))
         grid = QGridLayout()
         grid.setHorizontalSpacing(px(24))
         grid.setVerticalSpacing(px(8))
@@ -619,6 +631,14 @@ class AboutPage(QWidget):
         layout.addWidget(QLabel(licence, objectName="licence"), 0, Qt.AlignHCenter)
         quit_button = button(layout, "QUIT TO DESKTOP", self.quit, "danger")
         quit_button.setFixedHeight(px(60))
+
+    def show_h266(self, available):
+        color = "#57f59f" if available else "#7f93a3"
+        self.h266_badge.setStyleSheet(style("font-family: 'Piboto', 'DejaVu Sans'; font-size: 15px; font-weight: 700; "
+                                            "color: %s; border: 2px solid %s; border-radius: 8px; "
+                                            "padding: 4px 12px;" % (color, color)))
+        self.h266_note.setText("This Pi decodes H.264, H.265 and H.266 (VVC) video." if available else
+                               "H.266 (VVC) needs Raspberry Pi OS Trixie; this Pi decodes H.264 and H.265.")
 
 
 class SettingsPage(QWidget):
