@@ -11,5 +11,7 @@ driver="$HOME/.local/datvrx-rtl"
 if [[ -f $driver/lib/librtlsdr.so && -f $driver/include/rtl-sdr.h ]]; then
   rtl=(-DDATVRX_RTL=ON -DRTLSDR_INCLUDE_DIR="$driver/include" -DRTLSDR_LIBRARY="$driver/lib/librtlsdr.so")
 fi
+# The Pluto source needs libiio (package libiio-dev).
+[[ -f /usr/include/iio.h ]] && rtl+=(-DDATVRX_PLUTO=ON)
 cmake -S . -B build/linux -DCMAKE_BUILD_TYPE=Release "${rtl[@]}"
 cmake --build build/linux --parallel "${BUILD_JOBS:-2}"

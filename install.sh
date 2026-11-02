@@ -24,7 +24,7 @@ HERE=$([[ -f ${BASH_SOURCE[0]:-} ]] && cd "$(dirname "${BASH_SOURCE[0]}")" && pw
 LAUNCHER="$HOME/.local/share/applications/rtl-datv-player.desktop"
 AUTOSTART="$HOME/.config/autostart/rtl-datv-player.desktop"
 DESKTOP_DIR=$(xdg-user-dir DESKTOP 2>/dev/null || printf '%s/Desktop' "$HOME")
-PACKAGES=(python3-pyqt5 python3-pyqt5.qtwebsockets mpv vlc fonts-piboto libusb-1.0-0 usbutils curl ca-certificates)
+PACKAGES=(python3-pyqt5 python3-pyqt5.qtwebsockets mpv vlc fonts-piboto libiio0 libusb-1.0-0 usbutils curl ca-certificates)
 
 bold() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 note() { printf '  %s\n' "$*"; }

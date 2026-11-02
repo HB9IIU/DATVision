@@ -15,7 +15,7 @@ Raspberry Pi OS 64-bit with desktop, Bookworm or Trixie, on a Pi 5 or Pi 4.
 
 ```sh
 sudo apt install build-essential cmake git pkg-config libusb-1.0-0-dev \
-     python3-pyqt5 python3-pyqt5.qtwebsockets mpv fonts-piboto
+     python3-pyqt5 python3-pyqt5.qtwebsockets mpv fonts-piboto libiio-dev
 curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
 ```
 
@@ -46,7 +46,8 @@ bash scripts/linux/start-pi-player.sh           # the touchscreen player
 ```
 
 `build.sh` finds the driver in `~/.local/datvrx-rtl` and then also builds the
-stick tools; without it only the receiver is built. `BUILD_JOBS=4` builds faster
+stick tools; without it only the receiver is built. With `libiio-dev` it also
+builds `pluto_iq` for the ADALM-Pluto. `BUILD_JOBS=4` builds faster
 where memory allows.
 
 For a desktop icon on a development Pi: `bash scripts/linux/install-pi-player-desktop.sh`.

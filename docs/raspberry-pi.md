@@ -83,6 +83,19 @@ On terrestrial and converter bands the column shows the RF gain with − and +.
 
 Changes apply when you press DONE.
 
+## ADALM-Pluto (test)
+
+Instead of the RTL-SDR stick, DATVision can receive with an ADALM-Pluto or a
+compatible clone (for example the PlutoSky), tested with the Tezuka firmware.
+Settings → Receiver → **PLUTO**.
+
+- The Pluto needs **its own power supply** on its PWR socket (any 5 V charger,
+  at least 1 A). From the Pi's USB alone it keeps restarting.
+- Connect it to the Pi with the USB data socket; DATVision talks to it directly
+  over USB. Its gain is automatic.
+- For now, QO-100 with the BATC spectrum works; the local scan, and with it the
+  other bands, still needs the RTL-SDR stick.
+
 ## Recording and playback
 
 **● REC** records the received transport stream while a station is locked,

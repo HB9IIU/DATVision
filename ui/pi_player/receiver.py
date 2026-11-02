@@ -9,6 +9,7 @@ import threading
 
 
 DEFAULT_STREAM = "udp://239.255.42.42:1234"   # as the Windows version
+DEFAULT_PLUTO = "usb:"   # the first Pluto on USB; the network link (ip:192.168.2.1) lost samples under load
 
 
 def udp_endpoint(text):
@@ -58,21 +59,26 @@ class Receiver(QObject):
     def info(self):
         return self.session["info"] if self.session else None
 
-    def tune(self, signal, lnb_mhz, port, gain_db):
+    def tune(self, signal, lnb_mhz, port, gain_db, device="rtl", pluto_uri=DEFAULT_PLUTO):
         self.stop()
         self.stuck = [process for process in self.stuck if process.poll() is None]
+        pluto = device == "pluto"
         if self.stuck:
-            raise RuntimeError("RTL-SDR stick not responding\n\nUnplug it and plug it back in.")
+            raise RuntimeError("%s not responding\n\nUnplug it and plug it back in." % ("Pluto" if pluto else "RTL-SDR stick"))
         frequency = round((signal.center_mhz - lnb_mhz) * 1e6)
-        if not 24000000 <= frequency <= 1766000000 or not 25 <= signal.symbol_rate_ks <= 1500:
-            raise ValueError("This RTL-SDR setup supports 25–1500 kS/s and a valid LNB frequency")
-        rate = 2560000 if signal.symbol_rate_ks >= 1250 else 2400000
+        low, high = (47000000, 6000000000) if pluto else (24000000, 1766000000)
+        if not low <= frequency <= high or not 25 <= signal.symbol_rate_ks <= 1500:
+            raise ValueError("This setup supports 25–1500 kS/s and %d–%d MHz after the LNB or converter"
+                             % (low // 1000000, high // 1000000))
+        # The Pluto's AD936x starts at about 2.08 MS/s; its gain is automatic.
+        rate = 2560000 if pluto or signal.symbol_rate_ks >= 1250 else 2400000
+        command = ([str(self.root / "build/linux/pluto_iq"), pluto_uri, str(frequency), str(rate), "auto"] if pluto else
+                   [str(self.root / "build/linux/rtl_iq"), str(frequency), str(rate), "%.1f" % gain_db])
         self.generation += 1
         session = {"id": self.generation, "stop": threading.Event(), "processes": [], "info": TsInfo()}
         self.session = session
         try:
-            source = subprocess.Popen([str(self.root / "build/linux/rtl_iq"), str(frequency), str(rate), "%.1f" % gain_db],
-                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.root, preexec_fn=end_with_player)
+            source = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.root, preexec_fn=end_with_player)
             session["processes"].append(source)
             decoder = subprocess.Popen([str(self.root / "build/linux/datvrx"), "-", "--rate", str(rate / 1e6),
                                         "--format", "cu8", "--rs", str(signal.symbol_rate_ks / 1000),
