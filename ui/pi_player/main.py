@@ -4,6 +4,7 @@ import ctypes
 from ctypes.util import find_library
 import fcntl
 import json
+import os
 from pathlib import Path
 import re
 import signal
@@ -745,9 +746,12 @@ class Player(QMainWindow):
         self.spectrum.stop()
         self.sweeper.stop()
         self.receiver.stop()
-        self.video.close()
         self.save_settings()
         event.accept()
+        # End here, without libVLC's own shutdown: on a Pi 4 with Trixie it aborts
+        # ("pthread_mutex_lock: assertion failed"), and nothing needs it at exit.
+        print("QUIT", flush=True)
+        os._exit(0)
 
 
 def main():
