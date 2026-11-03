@@ -83,7 +83,10 @@ On terrestrial and converter bands the column shows the RF gain with − and +.
 
 Changes apply when you press DONE.
 
-## ADALM-Pluto (test)
+## ADALM-Pluto (coming in version 1.1)
+
+> **Not in release 1.0.0.** This describes the development version on GitHub;
+> the PLUTO choice arrives with version 1.1.
 
 Instead of the RTL-SDR stick, DATVision can receive with an ADALM-Pluto or a
 compatible clone (for example the PlutoSky), tested with the Tezuka firmware.
