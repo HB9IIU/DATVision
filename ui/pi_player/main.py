@@ -500,7 +500,7 @@ class Player(QMainWindow):
         if not self.device_present():
             self.show_missing_device()
         else:
-            self.show_problem("Spectrum scan stopped\n\nPress START or BEACON", "ERROR", False)
+            self.show_problem("Spectrum scan stopped\n\nChoose the band again under BANDS", "ERROR", False)
 
     def toggle_fullscreen(self):
         if self.isFullScreen():
@@ -534,7 +534,7 @@ class Player(QMainWindow):
         if signal is None:
             self.spectrum.show_message("No signal at %.3f MHz" % mhz)
         elif signal.symbol_rate_ks > 1500:
-            self.spectrum.show_message("This signal is too wide for the RTL-SDR setup")
+            self.spectrum.show_message("This signal is too wide for this receiver (1500 kS/s at most)")
         else:
             self.tune(signal)
 
@@ -587,7 +587,7 @@ class Player(QMainWindow):
         stopped = time.monotonic()
         self.video.stop()
         timing = (stopped - stopping, time.monotonic() - stopped)
-        self.show_placeholder("Waiting for video keyframe…")
+        self.show_placeholder("Waiting for the picture…")
         self.picture_timer.start(100)
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reservation:
@@ -680,7 +680,7 @@ class Player(QMainWindow):
         else:
             self.stop()
             if self.effective_source() == "batc":
-                self.show_placeholder("Reception ended\n\nPress START or tap a signal")
+                self.show_placeholder("Reception ended\n\nTap a signal to watch it again")
 
     def log_video(self):
         # Every 5 s while watching: what VLC decodes, shows and drops (diagnosis on slower Pis).
@@ -775,7 +775,7 @@ class Player(QMainWindow):
         if self.full_video:
             self.toggle_full_video()
         self.picture_timer.stop()
-        self.show_placeholder("Stopped\n\nPress START or tap a signal")
+        self.show_placeholder("Stopped\n\nTap a signal to watch it")
         self.spectrum.set_slot(None, "searching")
         self.info.reset(None)
         self.info.show_state("STOPPED", DIM)
