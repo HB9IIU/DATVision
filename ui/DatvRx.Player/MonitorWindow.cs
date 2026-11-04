@@ -45,6 +45,7 @@ public sealed class MonitorWindow : Form
     private Process _embeddedProcess;
     private readonly Control _sidebar, _controls;
     private readonly TableLayoutPanel _body, _layout;
+    private readonly VideoClicks _clicks;
     private Form _playerWindow;
 
     public MonitorWindow(string root, string recording = null)
@@ -158,8 +159,10 @@ public sealed class MonitorWindow : Form
             if (file.ShowDialog(this) == DialogResult.OK) await PlayRecordingAsync(file.FileName);
         };
         _bands.Click += async (_, _) => await ChooseBandAsync(); _settings.Click += async (_, _) => await ConfigureAsync();
-        _quit.Click += (_, _) => Close(); _video.DoubleClick += (_, _) => TogglePlayerWindow(); _placeholder.DoubleClick += (_, _) => TogglePlayerWindow();
-        _video.Click += async (_, _) => await EndReplayAsync(); _placeholder.Click += async (_, _) => await EndReplayAsync();   // only during a replay
+        _quit.Click += (_, _) => Close(); // Clicks on the picture come through VideoClicks (ffplay's window would swallow them):
+        // a click ends a replay, a double click opens the separate video window.
+        _clicks = new VideoClicks(_video, () => GetForegroundWindow() == Handle || (_playerWindow != null && GetForegroundWindow() == _playerWindow.Handle));
+        _clicks.Clicked += async second => { if (_recording) await EndReplayAsync(); else if (second) TogglePlayerWindow(); };
         _video.Resize += (_, _) => FitVideo();
         _tips.SetToolTip(_video, "Double-click to open a resizable video window");
         _tips.SetToolTip(_placeholder, "Double-click to open a resizable video window");
@@ -206,7 +209,7 @@ public sealed class MonitorWindow : Form
         FormClosing += async (_, e) =>
         {
             if (_closed) return; e.Cancel = true; if (_closing) return;
-            _closing = true; _playerWindow?.Close(); _timer.Stop(); _batc.Dispose(); SaveSettings();
+            _closing = true; _playerWindow?.Close(); _timer.Stop(); _batc.Dispose(); _clicks.Dispose(); SaveSettings();
             await _sweep.StopAsync(); await _receiver.DisposeAsync(); _closed = true; Close();
         };
         Shown += async (_, _) =>
@@ -806,6 +809,7 @@ public sealed class MonitorWindow : Form
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern IntPtr SetWindowLongPtr(IntPtr window, int index, IntPtr value);
     [DllImport("user32.dll")] private static extern bool EnableWindow(IntPtr window, bool enable);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern bool MoveWindow(IntPtr window, int x, int y, int width, int height, bool repaint);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
 }
