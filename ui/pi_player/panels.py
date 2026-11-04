@@ -674,8 +674,9 @@ class PlutoPage(QWidget):
         self.rows = QVBoxLayout()
         self.rows.setSpacing(px(10))
         layout.addLayout(self.rows)
+        # Between two equal stretches: in the middle of the free area while searching.
         self.spinner = Spinner(px(96))
-        layout.addSpacing(px(30))
+        layout.addStretch()
         layout.addWidget(self.spinner, 0, Qt.AlignHCenter)
         self.spinner.hide()
         layout.addStretch()
