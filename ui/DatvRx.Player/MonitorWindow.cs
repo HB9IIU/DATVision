@@ -384,122 +384,192 @@ public sealed class MonitorWindow : Form
     private async Task ConfigureAsync(double? measuredLo = null, string calibrationNote = null)
     {
         if (_busy) return;
-        using var dialog = Dialog("DATVision · Settings", 590, 540);
-        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 10, Padding = new Padding(20) };
-        table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48)); table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52));
-        for (int row = 0; row < 10; row++)
-            table.RowStyles.Add(new RowStyle(SizeType.Percent, row == 5 && calibrationNote != null ? 16 : calibrationNote != null ? 84f / 9 : 10));
-        var source = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList }; source.Items.AddRange(["LOCAL", "BATC"]); source.SelectedIndex = _saved.Source == "BATC" ? 1 : 0;
-        var lo = new NumericUpDown { Dock = DockStyle.Fill, Minimum = 9000, Maximum = 11000, DecimalPlaces = 4, Increment = 0.0001m, Value = (decimal)(measuredLo ?? _saved.EffectiveLoMhz.Value) };
+        // Four cards as on the Pi: Spectrum, LNB oscillator, Receiver, Network stream.
+        using var dialog = Dialog("DATVision · Settings", 940, 600);
+        var accent = Color.FromArgb(31, 90, 68); var accentBorder = Color.FromArgb(80, 215, 160);
+        var plain = Color.FromArgb(27, 49, 64); var plainBorder = Color.FromArgb(41, 72, 92);
+        var amber = Color.FromArgb(255, 191, 71);
+        Label Text(string text, float size, bool bold = false, Color? color = null) => new()
+        {
+            Text = text, Dock = DockStyle.Fill, AutoSize = false, BackColor = Color.Transparent, ForeColor = color ?? MonitorColors.Text,
+            Font = new Font("Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular), TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(0, 2, 0, 2)
+        };
+        Button Choice(string text) { var b = Button(text); b.Font = new Font("Segoe UI", 10, FontStyle.Bold); return b; }
+        void Pick(Button chosen, Button other)
+        {
+            chosen.BackColor = accent; chosen.FlatAppearance.BorderColor = accentBorder;
+            other.BackColor = plain; other.FlatAppearance.BorderColor = plainBorder;
+        }
+        TableLayoutPanel Row(params Control[] controls)
+        {
+            var row = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = controls.Length, RowCount = 1, Margin = Padding.Empty, Padding = Padding.Empty };
+            foreach (var control in controls) { row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / controls.Length)); row.Controls.Add(control); }
+            return row;
+        }
+        TableLayoutPanel Card(string title, int[] heights, string hint, out Label hintLabel)
+        {
+            var card = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = heights.Length + 2, BackColor = MonitorColors.Panel,
+                Padding = new Padding(16, 10, 16, 10), Margin = new Padding(6) };
+            card.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+            foreach (int height in heights) card.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+            card.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            card.Controls.Add(Text(title, 12, true), 0, 0);
+            hintLabel = Text(hint, 8.5f, color: MonitorColors.Dim); hintLabel.TextAlign = ContentAlignment.BottomLeft;
+            card.Controls.Add(hintLabel, 0, heights.Length + 1);
+            return card;
+        }
+
+        // ---- Spectrum
+        bool batc = _saved.Source == "BATC" && _band.Key == "qo100";
+        var local = Choice("LOCAL SCAN"); var online = Choice("BATC ONLINE");
+        online.Enabled = _band.Key == "qo100";
+        local.Click += (_, _) => { batc = false; Pick(local, online); };
+        online.Click += (_, _) => { batc = true; Pick(online, local); };
+        Pick(batc ? online : local, batc ? local : online);
+        var spectrumCard = Card("Spectrum", [46, 30],
+            "Local scan: your own SDR sweeps the band, no internet needed. BATC: the BATC web spectrum of the whole transponder.", out _);
+        spectrumCard.Controls.Add(Row(local, online), 0, 1);
+        spectrumCard.Controls.Add(_band.Key != "qo100" ? Text("BATC covers QO-100 only.", 10, color: MonitorColors.Dim)
+            : _batcOnline ? Text("● Internet OK: BATC spectrum available.", 10, color: accentBorder)
+            : Text("● BATC not reachable now: use LOCAL SCAN.", 10, color: amber), 0, 2);
+
+        // ---- LNB oscillator
+        var lo = new NumericUpDown { Dock = DockStyle.Fill, Minimum = 9000, Maximum = 11000, DecimalPlaces = 4, Increment = 0.0001m,
+            Value = (decimal)(measuredLo ?? _saved.EffectiveLoMhz.Value), Font = new Font("Segoe UI", 18, FontStyle.Bold), TextAlign = HorizontalAlignment.Center,
+            BackColor = MonitorColors.Background, ForeColor = MonitorColors.Text, BorderStyle = BorderStyle.None };
         _tips.SetToolTip(lo, "Total downconversion frequency, including combined downconverter and SDR frequency error.");
+        var calibrate = Choice("RECALIBRATE ON BEACON"); calibrate.Enabled = _band.Key == "qo100" && !_recording;
+        calibrate.Click += (_, _) => { dialog.DialogResult = DialogResult.Retry; dialog.Close(); };
+        var note = Text(calibrationNote ?? "", 9, color: calibrationNote == null ? MonitorColors.Dim : accentBorder);
+        var lnbCard = Card("LNB oscillator · MHz", [46, 46, 44], "Measured on the QO-100 beacon: five locks, deliberately detuned.", out _);
+        lnbCard.Controls.Add(lo, 0, 1); lnbCard.Controls.Add(calibrate, 0, 2); lnbCard.Controls.Add(note, 0, 3);
+
+        // ---- Receiver: RTL-SDR stick (gain set here) or an ADALM-Pluto (automatic gain)
         // Supported manual gain steps for the R820T/R820T2/R828D tuner.
         double[] gains = [0, 0.9, 1.4, 2.7, 3.7, 7.7, 8.7, 12.5, 14.4, 15.7, 16.6, 19.7, 20.7, 22.9, 25.4, 28, 29.7, 32.8, 33.8, 36.4, 37.2, 38.6, 40.2, 42.1, 43.4, 43.9, 44.5, 48, 49.6];
-        lo.TextAlign = HorizontalAlignment.Center;
-        var gain = new TrackBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = gains.Length - 1,
-            TickStyle = TickStyle.None, SmallChange = 1, LargeChange = 1, AutoSize = false,
-            Value = Enumerable.Range(0, gains.Length).MinBy(i => Math.Abs(gains[i] - _saved.Gain)), AccessibleName = "RF gain" };
-        var gainPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty };
-        gainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 28));
-        gainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        gainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44));
-        gainPanel.Controls.Add(Readout("0"), 0, 0); gainPanel.Controls.Add(gain, 1, 0);
-        gainPanel.Controls.Add(Readout("49.6"), 2, 0);
-        var gainLabel = Readout($"RF gain · {gains[gain.Value]:0.0} dB");
-        gain.ValueChanged += (_, _) => gainLabel.Text = $"RF gain · {gains[gain.Value]:0.0} dB";
-        var top = new CheckBox { Text = "Always on top", Checked = TopMost, Dock = DockStyle.Fill, ForeColor = MonitorColors.Text };
-        table.Controls.Add(Readout("Spectrum source"), 0, 0); table.Controls.Add(source, 1, 0);
-        table.Controls.Add(Readout("Effective LO · MHz"), 0, 1); table.Controls.Add(lo, 1, 1);
-        table.Controls.Add(gainLabel, 0, 2); table.Controls.Add(gainPanel, 1, 2);
-        table.Controls.Add(top, 0, 3); table.SetColumnSpan(top, 2);
-        var calibrate = Button("Calibrate effective LO using beacon…"); calibrate.Enabled = _band.Key == "qo100" && !_recording;
-        calibrate.Click += (_, _) => { dialog.DialogResult = DialogResult.Retry; dialog.Close(); };
-        table.Controls.Add(calibrate, 0, 4); table.SetColumnSpan(calibrate, 2);
-        var note = Readout(calibrationNote ?? "", 8);
+        var gain = new TrackBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = gains.Length - 1, TickStyle = TickStyle.None, SmallChange = 1, LargeChange = 1,
+            AutoSize = false, Value = Enumerable.Range(0, gains.Length).MinBy(i => Math.Abs(gains[i] - _saved.Gain)), AccessibleName = "RF gain" };
+        var gainLabel = Text("", 10);
+        bool pluto = _saved.Device == "Pluto";
+        var stick = Choice("RTL-SDR"); var plutoButton = Choice("PLUTO");
+        var plutoBox = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Font = new Font("Segoe UI", 10), Enabled = false };
+        var search = Choice("Search again");
+        var plutoRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+        plutoRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); plutoRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+        plutoRow.Controls.Add(plutoBox, 0, 0); plutoRow.Controls.Add(search, 1, 0);
+        var warning = Text("", 9, color: amber);
+        var receiverCard = Card("Receiver", [46, 38, 40, 44], "", out var receiverHint);
+        receiverCard.Controls.Add(Row(stick, plutoButton), 0, 1); receiverCard.Controls.Add(plutoRow, 0, 2);
+        var gainRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+        gainRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); gainRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        gainRow.Controls.Add(gainLabel, 0, 0); gainRow.Controls.Add(gain, 1, 0);
+        receiverCard.Controls.Add(gainRow, 0, 3); receiverCard.Controls.Add(warning, 0, 4);
+        List<PlutoFound> offered = []; List<string> twice = [];
+        void ShowReceiver()
+        {
+            Pick(pluto ? plutoButton : stick, pluto ? stick : plutoButton);
+            plutoRow.Visible = pluto; gain.Enabled = !pluto;
+            gainLabel.Text = pluto ? "Gain · automatic" : $"RF gain · {gains[gain.Value]:0.0} dB";
+            receiverHint.Text = pluto
+                ? "ADALM-Pluto or a clone (PlutoSky / FISHBall), on USB with its own power supply or on the network."
+                : "Lower the gain if strong signals overload the stick, raise it for weak stations.";
+            var notes = twice.Select(name => $"⚠ Two Plutos are called {name.Replace(".local", "")}: they are told apart by their address.").ToList();
+            if (pluto && offered.Any(p => p.Uri.StartsWith("usb:"))) notes.Add("⚠ A Pluto on USB also needs its own 5 V supply on its PWR socket.");
+            if (pluto && plutoBox.SelectedItem is PlutoItem { Pluto.Link: true }) notes.Add("⚠ This is the Pluto's slow USB network link: connect it directly instead.");
+            warning.Text = pluto ? string.Join("\n", notes) : "";
+        }
+        async Task SearchPlutos()
+        {
+            plutoBox.Enabled = search.Enabled = false; plutoBox.Items.Clear(); plutoBox.Items.Add("Searching on USB and the network…"); plutoBox.SelectedIndex = 0;
+            (offered, twice) = PlutoChoice.Offered(await PlutoChoice.SearchAsync(_root));
+            if (dialog.IsDisposed) return;
+            plutoBox.Items.Clear();
+            foreach (var found in offered) plutoBox.Items.Add(new PlutoItem(found));
+            var current = PlutoChoice.Choose(_saved.PlutoUri, _saved.PlutoName, _saved.PlutoSerial, _saved.PlutoAddress, offered);
+            if (offered.Count == 0) { plutoBox.Items.Add("No Pluto found · check its power and its cable"); plutoBox.SelectedIndex = 0; }
+            else plutoBox.SelectedIndex = Math.Max(0, offered.IndexOf(current));
+            plutoBox.Enabled = offered.Count > 0; search.Enabled = true;
+            ShowReceiver();
+        }
+        stick.Click += (_, _) => { pluto = false; ShowReceiver(); };
+        plutoButton.Click += (_, _) => { pluto = true; ShowReceiver(); };
+        gain.ValueChanged += (_, _) => ShowReceiver();
+        plutoBox.SelectedIndexChanged += (_, _) => ShowReceiver();
+        search.Click += async (_, _) => await SearchPlutos();
+        dialog.Shown += async (_, _) => await SearchPlutos();
+        ShowReceiver();
+
+        // ---- Network stream: live reception to VLC on the home network
         bool udpEnabled = _saved.UdpEnabled;
-        string udpDestination = _saved.UdpDestination;
-        var network = Button(udpEnabled ? "UDP streaming · enabled…" : "UDP streaming…");
-        network.Click += (_, _) =>
+        var udpOff = Choice("OFF"); var udpOn = Choice("ON");
+        udpOff.Click += (_, _) => { udpEnabled = false; Pick(udpOff, udpOn); };
+        udpOn.Click += (_, _) => { udpEnabled = true; Pick(udpOn, udpOff); };
+        Pick(udpEnabled ? udpOn : udpOff, udpEnabled ? udpOff : udpOn);
+        var destination = new TextBox { Text = _saved.UdpDestination, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 11) };
+        var vlc = Text("", 10);
+        var copy = Choice("Copy");
+        void RefreshAddress()
         {
-            using var options = Dialog("DATVision · UDP streaming", 590, 320);
-            var fields = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(18) };
-            fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            int[] heights = [32, 28, 38, 58, 36, 44, 44];
-            foreach (int height in heights) fields.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
-            var enable = new CheckBox { Text = "Enable UDP streaming", Checked = udpEnabled, Dock = DockStyle.Fill, ForeColor = MonitorColors.Text };
-            var destination = new TextBox { Text = udpDestination, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 11) };
-            var explanation = Readout("Multicast lets several PCs watch the live station. In VLC: Media → Open Network Stream. Allow VLC through the receiving PC’s firewall; guest Wi-Fi may block multicast.", 9);
-            var address = new TextBox { ReadOnly = true, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 11) };
-            void RefreshAddress()
-            {
-                try { address.Text = UdpStreamAddress.Vlc(destination.Text); }
-                catch (ArgumentException) { address.Text = "Enter a valid destination above"; }
-            }
-            destination.TextChanged += (_, _) => RefreshAddress(); RefreshAddress();
-            var copy = Button("Copy VLC address");
-            copy.Click += (_, _) => { try { Clipboard.SetText(UdpStreamAddress.Vlc(destination.Text)); } catch (ArgumentException ex) { MessageBox.Show(options, ex.Message, "UDP streaming"); } };
-            var done = Button("OK");
-            done.Dock = DockStyle.Top; done.Height = copy.Height = 38; copy.Dock = DockStyle.Top;
-            _tips.SetToolTip(done, "Return to Settings. Apply and save activates the changes.");
-            done.Click += (_, _) =>
-            {
-                try
-                {
-                    var endpoint = UdpStreamAddress.Parse(destination.Text);
-                    udpDestination = $"udp://{endpoint}"; udpEnabled = enable.Checked;
-                    network.Text = udpEnabled ? "UDP streaming · enabled…" : "UDP streaming…";
-                    options.DialogResult = DialogResult.OK; options.Close();
-                }
-                catch (ArgumentException ex) { MessageBox.Show(options, ex.Message, "UDP streaming"); }
-            };
-            fields.Controls.Add(enable); fields.Controls.Add(Readout("Destination · multicast group or receiving PC’s IPv4 address"));
-            fields.Controls.Add(destination); fields.Controls.Add(explanation); fields.Controls.Add(address); fields.Controls.Add(copy); fields.Controls.Add(done);
-            options.Controls.Add(fields); ShowMonitorDialog(options, owner: dialog);
-        };
-        var calibrationAndNetwork = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1, Margin = Padding.Empty };
-        calibrationAndNetwork.RowStyles.Add(new RowStyle(SizeType.Percent, calibrationNote == null ? 0 : 55));
-        calibrationAndNetwork.RowStyles.Add(new RowStyle(SizeType.Percent, calibrationNote == null ? 100 : 45));
-        note.AutoEllipsis = false; calibrationAndNetwork.Controls.Add(note, 0, 0); calibrationAndNetwork.Controls.Add(network, 0, 1);
-        if (calibrationNote == null)
-        {
-            calibrationAndNetwork.Controls.Remove(network);
-            calibrationAndNetwork.Dispose();
-            table.Controls.Add(network, 0, 5); table.SetColumnSpan(network, 2);
+            try { vlc.Text = "In VLC:  " + UdpStreamAddress.Vlc(destination.Text); vlc.ForeColor = MonitorColors.Text; }
+            catch (ArgumentException) { vlc.Text = "Destination: udp://IPv4:port"; vlc.ForeColor = amber; }
         }
-        else
-        {
-            table.Controls.Add(calibrationAndNetwork, 0, 5); table.SetColumnSpan(calibrationAndNetwork, 2);
-        }
-        var replay = Button("Open TS recording…"); replay.Click += async (_, _) =>
+        destination.TextChanged += (_, _) => RefreshAddress(); RefreshAddress();
+        copy.Click += (_, _) => { try { Clipboard.SetText(UdpStreamAddress.Vlc(destination.Text)); } catch (ArgumentException ex) { MessageBox.Show(dialog, ex.Message, "Network stream"); } };
+        var vlcRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+        vlcRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); vlcRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
+        vlcRow.Controls.Add(vlc, 0, 0); vlcRow.Controls.Add(copy, 1, 0);
+        var networkCard = Card("Network stream", [46, 34, 40],
+            "Sends live reception to the home network: a multicast group, or one PC's address. Allow VLC through that PC's firewall; guest Wi-Fi may block multicast.", out _);
+        networkCard.Controls.Add(Row(udpOff, udpOn), 0, 1); networkCard.Controls.Add(destination, 0, 2); networkCard.Controls.Add(vlcRow, 0, 3);
+
+        // ---- Header, the four cards, footer
+        var apply = Choice("APPLY"); apply.BackColor = accent; apply.FlatAppearance.BorderColor = accentBorder;
+        var about = Choice("ABOUT"); about.Click += (_, _) => ShowCredits(dialog);
+        var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140)); header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
+        header.Controls.Add(Text("Settings · " + _band.Name, 18, true), 0, 0); header.Controls.Add(about, 1, 0); header.Controls.Add(apply, 2, 0);
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Margin = Padding.Empty };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 44)); grid.RowStyles.Add(new RowStyle(SizeType.Percent, 56));
+        grid.Controls.Add(spectrumCard, 0, 0); grid.Controls.Add(lnbCard, 1, 0); grid.Controls.Add(receiverCard, 0, 1); grid.Controls.Add(networkCard, 1, 1);
+        var replay = Choice("Open TS recording…"); replay.Click += async (_, _) =>
         {
             using var file = new OpenFileDialog { Filter = "Transport stream (*.ts)|*.ts|All files|*.*", InitialDirectory = Directory.Exists(Path.Combine(_root, "Record")) ? Path.Combine(_root, "Record") : _root };
             if (file.ShowDialog(dialog) == DialogResult.OK) { dialog.Close(); await PlayRecordingAsync(file.FileName); }
         };
-        table.Controls.Add(replay, 0, 6); table.SetColumnSpan(replay, 2);
-        var credits = Button("Credits / source"); credits.Click += (_, _) => ShowCredits(dialog);
-        table.Controls.Add(credits, 0, 7); table.SetColumnSpan(credits, 2);
-        var save = Button("Apply and save"); save.Click += (_, _) =>
+        var top = new CheckBox { Text = "Always on top", Checked = TopMost, Dock = DockStyle.Fill, ForeColor = MonitorColors.Text, Font = new Font("Segoe UI", 10) };
+        var cancel = Choice("Cancel"); cancel.DialogResult = DialogResult.Cancel; dialog.CancelButton = cancel;
+        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, Margin = Padding.Empty };
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
+        footer.Controls.Add(replay, 0, 0); footer.Controls.Add(top, 1, 0); footer.Controls.Add(cancel, 3, 0);
+        var page = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(14), BackColor = MonitorColors.Background };
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 54)); page.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); page.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+        page.Controls.Add(header, 0, 0); page.Controls.Add(grid, 0, 1); page.Controls.Add(footer, 0, 2);
+        dialog.Controls.Add(page);
+
+        apply.Click += (_, _) =>
         {
-            _saved.Source = source.SelectedIndex == 1 && _band.Key == "qo100" ? "BATC" : "Local";
+            string udpDestination;
+            try { udpDestination = $"udp://{UdpStreamAddress.Parse(destination.Text)}"; }
+            catch (ArgumentException ex) { MessageBox.Show(dialog, ex.Message, "Network stream"); return; }
+            var chosen = (plutoBox.SelectedItem as PlutoItem)?.Pluto;
+            if (pluto && chosen == null) { MessageBox.Show(dialog, "Choose a Pluto, or the RTL-SDR stick.", "Receiver"); return; }
+            _saved.Source = batc && _band.Key == "qo100" ? "BATC" : "Local";
             _saved.EffectiveLoMhz = (double)lo.Value; _saved.Gain = gains[gain.Value]; _saved.TopMost = TopMost = top.Checked;
             if (_playerWindow != null) _playerWindow.TopMost = TopMost;
             _saved.UdpEnabled = udpEnabled; _saved.UdpDestination = udpDestination;
             _receiver.UdpDestination = udpEnabled ? udpDestination : null;
+            _saved.Device = pluto ? "Pluto" : "RTL";
+            if (chosen != null && pluto)
+            {
+                _saved.PlutoUri = chosen.Uri; _saved.PlutoName = chosen.Name; _saved.PlutoSerial = chosen.Serial; _saved.PlutoAddress = chosen.Address;
+            }
+            _receiver.PlutoUri = pluto ? _saved.PlutoUri : null;
+            _spectrum.Receiver = pluto ? "PLUTO" : "RTL-SDR";
             SaveSettings(); dialog.DialogResult = DialogResult.OK; dialog.Close();
         };
-        table.Controls.Add(save, 0, 8); table.SetColumnSpan(save, 2);
-        var cancel = Button("Cancel"); cancel.DialogResult = DialogResult.Cancel; dialog.CancelButton = cancel;
-        table.Controls.Add(cancel, 0, 9); table.SetColumnSpan(cancel, 2); dialog.Controls.Add(table);
-        void EnlargeSettingsControls(Control parent)
-        {
-            foreach (Control control in parent.Controls)
-            {
-                control.Font = new Font("Segoe UI", control == note ? 10 : control is NumericUpDown ? 12 : 11,
-                    control is Button ? FontStyle.Bold : FontStyle.Regular);
-                if (control is Label label) label.TextAlign = ContentAlignment.MiddleLeft;
-                EnlargeSettingsControls(control);
-            }
-        }
-        EnlargeSettingsControls(table);
         var outcome = ShowMonitorDialog(dialog);
         if (outcome == DialogResult.Retry)
         {
@@ -699,6 +769,7 @@ public sealed class MonitorWindow : Form
         _saved.LnbMhz = null; _saved.DownconverterLoMhz = null; _saved.FrequencyCorrectionKhz = 0;
     }
     private void SaveSettings() { try { File.WriteAllText(_settingsPath, JsonSerializer.Serialize(_saved, new JsonSerializerOptions { WriteIndented = true })); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { } }
+    private sealed record PlutoItem(PlutoFound Pluto) { public override string ToString() => Pluto.Label; }
     private sealed class Settings { public bool UdpEnabled { get; set; } public string UdpDestination { get; set; } = UdpStreamAddress.Default; public int Volume { get; set; } = 30; public bool Muted { get; set; } public bool TopMost { get; set; } = true; public double Gain { get; set; } = 40.2; [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public double? LnbMhz { get; set; } [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public double? DownconverterLoMhz { get; set; } [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public double FrequencyCorrectionKhz { get; set; } public double? EffectiveLoMhz { get; set; } public string Source { get; set; } = "BATC"; public string Band { get; set; } = "qo100"; public string Device { get; set; } = "RTL"; public string PlutoUri { get; set; } public string PlutoName { get; set; } public string PlutoSerial { get; set; } public string PlutoAddress { get; set; } }
     private static Label Readout(string text, float size = 9, bool bold = false) => new() { Text = text, Dock = DockStyle.Fill, ForeColor = MonitorColors.Dim, BackColor = Color.Transparent, Font = new Font("Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular), AutoEllipsis = true, Margin = Padding.Empty };
     private static Button Button(string text) => new MonitorButton() { Text = text, Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat, FlatAppearance = { BorderColor = Color.FromArgb(41, 72, 92) }, BackColor = Color.FromArgb(27, 49, 64), ForeColor = MonitorColors.Text, Font = new Font("Segoe UI", 9, FontStyle.Bold), Cursor = Cursors.Hand, Margin = new Padding(3), TabStop = false };
