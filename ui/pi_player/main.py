@@ -16,9 +16,9 @@ import time
 import traceback
 
 from PyQt5.QtCore import Qt, QTimer, QEvent, QObject, pyqtSignal
-from PyQt5.QtGui import QFont, QKeySequence
+from PyQt5.QtGui import QColor, QFont, QKeySequence, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QShortcut, QMessageBox, QFrame, QStackedLayout, QStackedWidget)
+                             QShortcut, QMessageBox, QFrame, QStackedLayout, QStackedWidget, QSplashScreen)
 import bands
 import calibration
 import ui_scale
@@ -1082,6 +1082,37 @@ class Player(QMainWindow):
         os._exit(0)
 
 
+def welcome(root):
+    """The DATVision logo and version for 2 s at start; a tap closes it sooner. A window
+    of its own, so that the video appearing meanwhile cannot cover it."""
+    wordmark = QPixmap(str(root / "assets/branding/datvision-wordmark.png"))
+    if wordmark.isNull():
+        return None
+    version_file = root / "VERSION"
+    version = version_file.read_text().strip() if version_file.exists() else "development"
+    logo = wordmark.scaledToWidth(px(560), Qt.SmoothTransformation)
+    card = QPixmap(px(640), logo.height() + px(90))
+    card.fill(QColor("#0c1620"))
+    painter = QPainter(card)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(QPen(QColor("#1d3446"), px(2)))
+    painter.drawRect(card.rect().adjusted(px(1), px(1), -px(2), -px(2)))
+    painter.drawPixmap((card.width() - logo.width()) // 2, px(20), logo)
+    painter.setPen(QColor("#9cb4c5"))
+    font = QFont("DejaVu Sans")
+    font.setPixelSize(px(18))
+    painter.setFont(font)
+    painter.drawText(card.rect().adjusted(0, 0, 0, -px(22)), Qt.AlignHCenter | Qt.AlignBottom, "Version " + version)
+    painter.end()
+    # Without a frame or title bar: the desktop's window manager is told to leave it alone.
+    splash = QSplashScreen(card, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.X11BypassWindowManagerHint)
+    screen = QApplication.primaryScreen().geometry()
+    splash.move(screen.center() - splash.rect().center())
+    splash.show()
+    QTimer.singleShot(2000, splash.close)
+    return splash
+
+
 def main():
     # Xlib is shared by Qt and VLC; initialize its threading support first.
     ctypes.CDLL(find_library("X11")).XInitThreads()
@@ -1107,9 +1138,10 @@ def main():
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            QMessageBox.information(None, "RTL DATV", "The Pi player is already running.")
+            QMessageBox.information(None, "DATVision", "DATVision is already running.")
             return 1
     player = Player(root, preview, window)
+    splash = None if preview else welcome(root)   # kept referenced until it closes
     # Stopped from outside (an update, a shutdown): close like QUIT, which stops the receiver.
     signal.signal(signal.SIGTERM, lambda *args: player.close())
     signal.signal(signal.SIGINT, lambda *args: player.close())
