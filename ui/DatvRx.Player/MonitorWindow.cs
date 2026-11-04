@@ -161,8 +161,7 @@ public sealed class MonitorWindow : Form
         _bands.Click += async (_, _) => await ChooseBandAsync(); _settings.Click += async (_, _) => await ConfigureAsync();
         _quit.Click += (_, _) => Close(); // Clicks on the picture come through VideoClicks (ffplay's window would swallow them):
         // a click ends a replay, a double click opens the separate video window.
-        _clicks = new VideoClicks(_video, window => window == Handle || (_playerWindow != null && window == _playerWindow.Handle),
-            Path.Combine(root, "test-output", "player-clicks.log"));
+        _clicks = new VideoClicks(_video, Path.Combine(root, "test-output", "player-clicks.log"));
         _clicks.Clicked += async second => { if (_recording) await EndReplayAsync(); else if (second) TogglePlayerWindow(); };
         _video.Resize += (_, _) => FitVideo();
         _tips.SetToolTip(_video, "Double-click to open a resizable video window");
