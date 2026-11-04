@@ -15,7 +15,7 @@ import threading
 import time
 import traceback
 
-from PyQt5.QtCore import Qt, QTimer, QEvent, QObject, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, QEvent, QObject, QRectF, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QKeySequence, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QShortcut, QMessageBox, QFrame, QStackedLayout, QStackedWidget, QSplashScreen)
@@ -1091,23 +1091,31 @@ def welcome(root):
     version_file = root / "VERSION"
     version = version_file.read_text().strip() if version_file.exists() else "development"
     logo = wordmark.scaledToWidth(px(560), Qt.SmoothTransformation)
-    card = QPixmap(px(640), logo.height() + px(90))
-    card.fill(QColor("#0c1620"))
+    card = QPixmap(px(640), logo.height() + px(120))
+    card.fill(Qt.transparent)
+    radius = px(22)
     painter = QPainter(card)
     painter.setRenderHint(QPainter.Antialiasing)
     painter.setPen(QPen(QColor("#1d3446"), px(2)))
-    painter.drawRect(card.rect().adjusted(px(1), px(1), -px(2), -px(2)))
-    painter.drawPixmap((card.width() - logo.width()) // 2, px(20), logo)
-    painter.setPen(QColor("#9cb4c5"))
+    painter.setBrush(QColor("#0c1620"))
+    painter.drawRoundedRect(QRectF(card.rect()).adjusted(1, 1, -1, -1), radius, radius)
+    painter.drawPixmap((card.width() - logo.width()) // 2, px(18), logo)
     font = QFont("DejaVu Sans")
-    font.setPixelSize(px(18))
+    font.setPixelSize(px(20))
     painter.setFont(font)
-    painter.drawText(card.rect().adjusted(0, 0, 0, -px(22)), Qt.AlignHCenter | Qt.AlignBottom, "Version " + version)
+    painter.setPen(QColor("#dde8f1"))
+    painter.drawText(card.rect().adjusted(0, 0, 0, -px(56)), Qt.AlignHCenter | Qt.AlignBottom, "for RTL-SDR and Pluto / FISHBall")
+    font.setPixelSize(px(16))
+    painter.setFont(font)
+    painter.setPen(QColor("#9cb4c5"))
+    painter.drawText(card.rect().adjusted(0, 0, 0, -px(24)), Qt.AlignHCenter | Qt.AlignBottom, "Version " + version)
     painter.end()
     # Without a frame or title bar: the desktop's window manager is told to leave it alone.
     splash = QSplashScreen(card, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.X11BypassWindowManagerHint)
     screen = QApplication.primaryScreen().geometry()
     splash.move(screen.center() - splash.rect().center())
+    # Rounded corners: only the card itself belongs to the window.
+    splash.setMask(card.mask())
     splash.show()
     QTimer.singleShot(2000, splash.close)
     return splash
