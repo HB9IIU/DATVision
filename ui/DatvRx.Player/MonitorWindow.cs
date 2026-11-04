@@ -159,10 +159,11 @@ public sealed class MonitorWindow : Form
             if (file.ShowDialog(this) == DialogResult.OK) await PlayRecordingAsync(file.FileName);
         };
         _bands.Click += async (_, _) => await ChooseBandAsync(); _settings.Click += async (_, _) => await ConfigureAsync();
-        _quit.Click += (_, _) => Close(); // Clicks on the picture come through VideoClicks (ffplay's window would swallow them):
-        // a click ends a replay, a double click opens the separate video window.
+        _quit.Click += (_, _) => Close();
+        // Clicks on the picture come through VideoClicks (ffplay's window would swallow them):
+        // as on the Pi, a click ends a replay, otherwise shows the video alone or brings the columns back.
         _clicks = new VideoClicks(_video, Path.Combine(root, "test-output", "player-clicks.log"));
-        _clicks.Clicked += async _ => { if (_recording) await EndReplayAsync(); else SetFullVideo(!_fullVideo); };
+        _clicks.Clicked += async () => { if (_recording) await EndReplayAsync(); else SetFullVideo(!_fullVideo); };
         _video.Resize += (_, _) => FitVideo();
         _tips.SetToolTip(_video, "Double-click to open a resizable video window");
         _tips.SetToolTip(_placeholder, "Double-click to open a resizable video window");
