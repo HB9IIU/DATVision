@@ -165,8 +165,8 @@ public sealed class MonitorWindow : Form
         _clicks = new VideoClicks(_video, Path.Combine(root, "test-output", "player-clicks.log"));
         _clicks.Clicked += async () => { if (_recording) await EndReplayAsync(); else SetFullVideo(!_fullVideo); };
         _video.Resize += (_, _) => FitVideo();
-        _tips.SetToolTip(_video, "Double-click to open a resizable video window");
-        _tips.SetToolTip(_placeholder, "Double-click to open a resizable video window");
+        _tips.SetToolTip(_video, "Click to show the video alone; click again to bring the columns back.");
+        _tips.SetToolTip(_placeholder, "Click to show the video alone; click again to bring the columns back.");
         _timer.Tick += async (_, _) =>
         {
             UpdateRecordButton();
