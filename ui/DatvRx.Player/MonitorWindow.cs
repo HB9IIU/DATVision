@@ -44,7 +44,7 @@ public sealed class MonitorWindow : Form
     private IntPtr _embedded;
     private Process _embeddedProcess;
     private readonly Control _sidebar, _controls;
-    private readonly TableLayoutPanel _body;
+    private readonly TableLayoutPanel _body, _layout;
     private Form _playerWindow;
 
     public MonitorWindow(string root, string recording = null)
@@ -59,7 +59,7 @@ public sealed class MonitorWindow : Form
         BackColor = MonitorColors.Background; ForeColor = MonitorColors.Text;
         ClientSize = new Size(1024, 600); FormBorderStyle = FormBorderStyle.FixedSingle; MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen; TopMost = _saved.TopMost;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(7) };
+        var layout = _layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(7) };
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 132));
         _body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = new Padding(0, 0, 0, 6) };
         _body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 15)); _body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 71)); _body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 14));
@@ -308,8 +308,17 @@ public sealed class MonitorWindow : Form
         catch (Exception ex) { State("SDR ERROR", MonitorColors.Red); Placeholder(ex.Message); _current = null; _stop.Text = "START"; }
         finally { _busy = false; }
     }
+    // The video alone in the window (a replay): no information, controls or spectrum.
+    private void SetFullVideo(bool full)
+    {
+        _sidebar.Visible = _controls.Visible = _spectrum.Visible = !full;
+        _body.ColumnStyles[0].Width = full ? 0 : 15; _body.ColumnStyles[1].Width = full ? 100 : 71; _body.ColumnStyles[2].Width = full ? 0 : 14;
+        _layout.RowStyles[1].Height = full ? 0 : 132;
+        FitVideo();
+    }
     private async Task EndReceptionAsync()
     {
+        SetFullVideo(false);
         await _sweep.StopAsync(); await _receiver.StopAsync();
         _current = null; _recording = false; _scanning = false; _embedded = IntPtr.Zero; _embeddedProcess = null;
         _report = null; _eye.Report = null; _eye.Running = false; _eye.Invalidate();
@@ -338,9 +347,9 @@ public sealed class MonitorWindow : Form
             _spectrum.Frame = null; _spectrum.Tuned = null; _spectrum.Message = "Recorded video · RF scanner stopped";
             _spectrum.SourceLabel = "REPLAY"; _spectrum.Invalidate(); Placeholder("Opening recorded reception…");
             await _receiver.PlayRecordingAsync(path);
-            // As on the Pi: full screen; a click on the picture or the end of the file ends it.
-            if (_playerWindow == null) TogglePlayerWindow();
-            _playerWindow.FormBorderStyle = FormBorderStyle.None; _playerWindow.WindowState = FormWindowState.Maximized; _playerWindow.TopMost = true;
+            // As on the Pi: the video fills the window; a click on it or the end of the file ends it.
+            _playerWindow?.Close();
+            SetFullVideo(true);
         }
         catch (Exception ex) { State("REPLAY ERROR", MonitorColors.Red); Placeholder(ex.Message); }
         finally { _busy = false; }
@@ -348,7 +357,6 @@ public sealed class MonitorWindow : Form
     private async Task EndReplayAsync()
     {
         if (!_recording || _busy) return;
-        _playerWindow?.Close();
         await StopAsync();
         if (_saved.Source == "Local") await StartScanningAsync(); else await TuneBeaconAsync();   // back to reception
     }
