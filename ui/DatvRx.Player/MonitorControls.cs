@@ -52,6 +52,8 @@ public sealed class MonitorSpectrum : Control
     public string Message { get; set; } = "Connect an RTL-SDR · press Start to scan";
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public string SourceLabel { get; set; } = "LOCAL";
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public string Receiver { get; set; } = "RTL-SDR";   // which radio the data comes from
     public event Action<double> FrequencyClicked;
     public MonitorSpectrum() { DoubleBuffered = true; Cursor = Cursors.Cross; SetStyle(ControlStyles.ResizeRedraw, true); }
     protected override void OnMouseDown(MouseEventArgs e)
@@ -118,7 +120,7 @@ public sealed class MonitorSpectrum : Control
             string stageLabel = Stage == CarrierStage.WaitingVideo ? "WAITING FOR VIDEO" : Stage.ToString().ToUpperInvariant();
             g.DrawString(stageLabel, Font, stageText, Math.Max(0, (Width - g.MeasureString(stageLabel, Font).Width) / 2), 0);
         }
-        string source = Band.Name + " · " + SourceLabel;
+        string source = Band.Name + " · " + SourceLabel + (SourceLabel == "REPLAY" ? "" : " · " + Receiver);
         g.DrawString(source, Font, text, Math.Max(4, Width - g.MeasureString(source, Font).Width - 5), 0);
         if (!string.IsNullOrWhiteSpace(Message))
         {

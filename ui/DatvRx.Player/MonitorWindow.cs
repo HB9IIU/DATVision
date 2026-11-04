@@ -53,6 +53,7 @@ public sealed class MonitorWindow : Form
         // Always open on the QO-100 beacon with the internet spectrum reference.
         _band = ReceiveBand.Presets[0]; _saved.Band = _band.Key; _saved.Source = "BATC";
         _receiver = new LocalReceiver(root) { UdpDestination = _saved.UdpEnabled ? _saved.UdpDestination : null, PlutoUri = _saved.Device == "Pluto" ? _saved.PlutoUri : null }; _sweep = new LocalSweep(root);
+        _spectrum.Receiver = _receiver.PlutoUri != null ? "PLUTO" : "RTL-SDR";
         Text = "DATVision · HB9IIU"; Icon = BrandAssets.Icon; Font = new Font("Segoe UI", 9);
         BackColor = MonitorColors.Background; ForeColor = MonitorColors.Text;
         ClientSize = new Size(1024, 600); FormBorderStyle = FormBorderStyle.FixedSingle; MaximizeBox = false;
@@ -286,7 +287,7 @@ public sealed class MonitorWindow : Form
             _current = request; _report = null; _embedded = IntPtr.Zero; _embeddedProcess = null; _lastReport = default;
             _signalLoss.Reset(Environment.TickCount64); _hadReception = _signalLost = false;
             ClearQuality();
-            _station.Text = "Tuning…"; _provider.Text = "Local RTL-SDR"; _media.Text = ""; _losses = 0;
+            _station.Text = "Tuning…"; _provider.Text = _receiver.PlutoUri != null ? "Pluto · " + (_saved.PlutoName ?? _receiver.PlutoUri) : "Local RTL-SDR"; _media.Text = ""; _losses = 0;
             _frequency.Text = $"{mhz:0.000} MHz"; _sr.Text = $"{symbols} kS/s"; _mode.Text = "Searching…";
             State("TUNING", MonitorColors.Amber); Placeholder("Waiting for the station\n\nand its first video keyframe…");
             _stop.Text = _saved.Source == "BATC" ? "STOP" : "RESCAN"; _spectrum.Tuned = request;

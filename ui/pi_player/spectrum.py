@@ -36,6 +36,7 @@ class Spectrum(QWidget):
         self.selected = None
         self.slot_state = "searching"
         self.message = ""
+        self.receiver = "RTL-SDR"   # or PLUTO: shown with the source
         self.setMinimumHeight(px(108))
         self.setCursor(Qt.CrossCursor)
         self.socket = QWebSocket()
@@ -249,6 +250,7 @@ class Spectrum(QWidget):
             painter.setFont(self.font())
             painter.setBrush(Qt.NoBrush)
         source = self.band_name + (" · ZOOM" if self.zoomed else "") + " · " + ("BATC" if self.source == "batc" else "LOCAL · PAUSED" if self.frozen else "LOCAL")
+        source += " · " + self.receiver   # which radio the data comes from
         painter.setPen(QColor("#91a7ba"))
         painter.drawText(width - painter.fontMetrics().horizontalAdvance(source) - px(6), painter.fontMetrics().ascent() + px(4), source)
         text = self.message

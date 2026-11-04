@@ -402,6 +402,7 @@ class Player(QMainWindow):
                                          "mpv" if isinstance(self.video, mpv_video.MpvVideo) else "libVLC",
                                          " · H.266" if self.h266 else " · no H.266 decoder"), flush=True)
         QTimer.singleShot(200, lambda: self.spectrum.set_source(self.effective_source()))
+        self.spectrum.receiver = "PLUTO" if self.device == "pluto" else "RTL-SDR"
         QTimer.singleShot(500, self.start_reception)
 
     @property
@@ -937,6 +938,7 @@ class Player(QMainWindow):
         self.lnb_mhz, self.gain_db = self.settings.lnb_mhz, self.settings.gain_db
         if self.band.converter_los:
             self.los[self.band.key] = lo
+        self.spectrum.receiver = "PLUTO" if self.device == "pluto" else "RTL-SDR"
         if device_changed:
             print("DEVICE: " + self.device, flush=True)
             self.save_settings()
