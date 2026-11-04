@@ -2,7 +2,7 @@
 
 # DATVision
 
-**DATVision** turns an inexpensive RTL-SDR stick into a dedicated receiver for
+**DATVision** turns an inexpensive RTL-SDR stick, or an ADALM-Pluto, into a dedicated receiver for
 digital amateur television (DVB-S and DVB-S2): QO-100 and the terrestrial ATV
 bands, with spectrum, click-to-tune, video and sound in one application.
 
@@ -14,6 +14,8 @@ operated with a finger, and on **Windows**.
 ## Features
 
 - **DVB-S and DVB-S2** reception up to 1500 kS/s with an RTL-SDR Blog V4 or R820T stick.
+- **ADALM-Pluto and clones** such as the FISHBall PlutoSky (Tezuka firmware), on USB or
+  on the network: found automatically and chosen in Settings.
 - **QO-100** through the LNB, with the BATC web spectrum or a local scan by the
   stick itself, and LNB calibration on the beacon.
 - **Terrestrial bands**: 4 m, 2 m, 70 cm, 23 cm, and 6 cm through a downconverter.
@@ -34,7 +36,7 @@ operated with a finger, and on **Windows**.
 ## Raspberry Pi
 
 Raspberry Pi 5 or 4, Raspberry Pi OS 64-bit with desktop (Bookworm or Trixie),
-a touchscreen and an RTL-SDR stick. In a terminal on the Pi:
+a touchscreen and an RTL-SDR stick or an ADALM-Pluto. In a terminal on the Pi:
 
 ```sh
 curl -fsSL https://github.com/HB9IIU/DATVision/releases/latest/download/install.sh | bash
@@ -50,7 +52,7 @@ whatever audio output the Pi uses.
 ## Windows
 
 Windows 10/11 x64 and an RTL-SDR stick with the WinUSB driver (installed once
-with Zadig). Download the portable ZIP from the
+with Zadig), or an ADALM-Pluto. Download the portable ZIP from the
 [latest release](https://github.com/HB9IIU/DATVision/releases/latest), extract
 the whole folder and open **DATVision.exe**; no installation is needed.
 See the [Windows guide](docs/windows.md).

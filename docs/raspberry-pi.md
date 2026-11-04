@@ -83,26 +83,24 @@ On terrestrial and converter bands the column shows the RF gain with − and +.
 
 Changes apply when you press DONE.
 
-## ADALM-Pluto (coming in version 1.1)
+## ADALM-Pluto
 
-> **Not in release 1.0.0.** This describes the development version on GitHub;
-> the PLUTO choice arrives with version 1.1.
+Instead of the RTL-SDR stick, DATVision receives with an ADALM-Pluto or a clone
+such as the FISHBall PlutoSky, tested with the Tezuka firmware.
+Settings → Receiver → **PLUTO**, then tap the Pluto's name to choose it from
+the Plutos found on USB and on the network. Its gain is automatic; the local
+scan uses a fixed gain.
 
-Instead of the RTL-SDR stick, DATVision can receive with an ADALM-Pluto or a
-compatible clone (for example the PlutoSky), tested with the Tezuka firmware.
-Settings → Receiver → **PLUTO**.
-
-- The Pluto needs **its own power supply** on its PWR socket (any 5 V charger,
-  at least 1 A). From the Pi's USB alone it keeps restarting.
-- Connect it to the Pi with the USB data socket; DATVision talks to it directly
-  over USB. Its gain is automatic.
-- A Pluto with an Ethernet port (such as the PlutoSky) can sit on the home
-  network instead: set `"pluto_uri": "ip:<its address>"` in
-  `~/pi-datv-rx/pi-player-settings.json`. This ran best of all in our tests.
-  Do not use the Pluto's own USB network link (ip:192.168.2.1): it lost
-  samples under load.
-- For now, QO-100 with the BATC spectrum works; the local scan, and with it the
-  other bands, still needs the RTL-SDR stick.
+- **On USB**, the Pluto needs **its own power supply** on its PWR socket (a 5 V
+  charger, 1 A or more). From the Pi's USB alone it keeps restarting, and
+  DATVision says so.
+- **On the network** (a Pluto with an Ethernet port), the Pi should be on a
+  cable too: over Wi-Fi the picture breaks up, and DATVision warns about it.
+- The chosen Pluto is found again by its serial number, name or address, so a
+  new address after a router restart does not matter. Two Plutos with the same
+  name are told apart by their address.
+- **One device per Pluto:** a Pluto used by two DATVisions at once (a Pi and a
+  PC) receives badly on both.
 
 ## Recording and playback
 

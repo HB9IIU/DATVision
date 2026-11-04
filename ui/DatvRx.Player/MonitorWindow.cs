@@ -162,7 +162,7 @@ public sealed class MonitorWindow : Form
         _quit.Click += (_, _) => Close();
         // Clicks on the picture come through VideoClicks (ffplay's window would swallow them):
         // as on the Pi, a click ends a replay, otherwise shows the video alone or brings the columns back.
-        _clicks = new VideoClicks(_video, Path.Combine(root, "test-output", "player-clicks.log"));
+        _clicks = new VideoClicks(_video);
         _clicks.Clicked += async () => { if (_recording) await EndReplayAsync(); else SetFullVideo(!_fullVideo); };
         _video.Resize += (_, _) => FitVideo();
         _tips.SetToolTip(_video, "Click to show the video alone; click again to bring the columns back.");

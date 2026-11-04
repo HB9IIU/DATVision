@@ -6,6 +6,13 @@ place and open **DATVision.exe**; no installation is needed. The RTL-SDR needs
 the WinUSB driver, installed once with Zadig. From the source tree, start
 **DATVision.cmd** after building ([building.md](building.md)).
 
+## ADALM-Pluto
+
+Settings → Receiver → **PLUTO**, then choose the Pluto from the list of Plutos
+found on USB and on the network (**Search** looks again). A Pluto on USB needs
+its own 5 V supply on its PWR socket. One device per Pluto: do not use the same
+Pluto from the PC and from a Raspberry Pi at the same time.
+
 ## Layout and operation
 
 - Fixed-size monitor window; optional always-on-top. Raised buttons provide hover and pressed feedback.
