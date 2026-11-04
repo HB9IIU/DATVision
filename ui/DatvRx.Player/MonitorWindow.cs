@@ -216,6 +216,7 @@ public sealed class MonitorWindow : Form
         Shown += async (_, _) =>
         {
             EnsureBatc(); _timer.Start(); UpdateSound();
+            if (_saved.Device == "Pluto") await FindPlutoAsync();
             if (recording != null) await PlayRecordingAsync(recording); else await TuneBeaconAsync();
         };
     }
@@ -357,6 +358,18 @@ public sealed class MonitorWindow : Form
         }
         catch (Exception ex) { State("REPLAY ERROR", MonitorColors.Red); Placeholder(ex.Message); }
         finally { _busy = false; }
+    }
+    // A saved Pluto may have a new address since last time (DHCP) or share its name:
+    // find it again by serial, unique name or last address, as on the Pi (about 2 s).
+    private async Task FindPlutoAsync()
+    {
+        Placeholder("Looking for the Pluto…");
+        var (offered, _) = PlutoChoice.Offered(await PlutoChoice.SearchAsync(_root));
+        var match = PlutoChoice.Choose(_saved.PlutoUri, _saved.PlutoName, _saved.PlutoSerial, _saved.PlutoAddress, offered);
+        if (match == null || match.Uri == _saved.PlutoUri) return;
+        _saved.PlutoUri = match.Uri; _saved.PlutoName = match.Name; _saved.PlutoSerial = match.Serial; _saved.PlutoAddress = match.Address;
+        _receiver.PlutoUri = _sweep.PlutoUri = match.Uri;
+        SaveSettings();
     }
     private async Task EndReplayAsync()
     {
