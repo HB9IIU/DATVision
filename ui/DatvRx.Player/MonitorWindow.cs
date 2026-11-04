@@ -386,8 +386,7 @@ public sealed class MonitorWindow : Form
         if (_busy) return;
         // Four cards as on the Pi: Spectrum, LNB oscillator, Receiver, Network stream.
         using var dialog = Dialog("DATVision · Settings", 940, 600);
-        var accent = Color.FromArgb(31, 90, 68); var accentBorder = Color.FromArgb(80, 215, 160);
-        var plain = Color.FromArgb(27, 49, 64); var plainBorder = Color.FromArgb(41, 72, 92);
+        var accentBorder = Color.FromArgb(80, 215, 160);
         var amber = Color.FromArgb(255, 191, 71);
         Label Text(string text, float size, bool bold = false, Color? color = null) => new()
         {
@@ -397,8 +396,7 @@ public sealed class MonitorWindow : Form
         Button Choice(string text) { var b = Button(text); b.Font = new Font("Segoe UI", 10, FontStyle.Bold); return b; }
         void Pick(Button chosen, Button other)
         {
-            chosen.BackColor = accent; chosen.FlatAppearance.BorderColor = accentBorder;
-            other.BackColor = plain; other.FlatAppearance.BorderColor = plainBorder;
+            ((MonitorButton)chosen).Selected = true; ((MonitorButton)other).Selected = false;
         }
         TableLayoutPanel Row(params Control[] controls)
         {
@@ -452,10 +450,11 @@ public sealed class MonitorWindow : Form
         var gainLabel = Text("", 10);
         bool pluto = _saved.Device == "Pluto";
         var stick = Choice("RTL-SDR"); var plutoButton = Choice("PLUTO");
-        var plutoBox = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Font = new Font("Segoe UI", 10), Enabled = false };
-        var search = Choice("Search again");
+        var plutoBox = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Font = new Font("Segoe UI", 10), Enabled = false,
+            DropDownWidth = 560 };
+        var search = Choice("Search");
         var plutoRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
-        plutoRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); plutoRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+        plutoRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); plutoRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
         plutoRow.Controls.Add(plutoBox, 0, 0); plutoRow.Controls.Add(search, 1, 0);
         var warning = Text("", 9, color: amber);
         var receiverCard = Card("Receiver", [46, 38, 40, 44], "", out var receiverHint);
@@ -468,10 +467,10 @@ public sealed class MonitorWindow : Form
         void ShowReceiver()
         {
             Pick(pluto ? plutoButton : stick, pluto ? stick : plutoButton);
-            plutoRow.Visible = pluto; gain.Enabled = !pluto;
+            plutoRow.Visible = pluto; gain.Visible = !pluto;
             gainLabel.Text = pluto ? "Gain · automatic" : $"RF gain · {gains[gain.Value]:0.0} dB";
             receiverHint.Text = pluto
-                ? "ADALM-Pluto or a clone (PlutoSky / FISHBall), on USB with its own power supply or on the network."
+                ? "ADALM-Pluto or a clone, on the network or on USB."
                 : "Lower the gain if strong signals overload the stick, raise it for weak stations.";
             var notes = twice.Select(name => $"⚠ Two Plutos are called {name.Replace(".local", "")}: they are told apart by their address.").ToList();
             if (pluto && offered.Any(p => p.Uri.StartsWith("usb:"))) notes.Add("⚠ A Pluto on USB also needs its own 5 V supply on its PWR socket.");
@@ -523,7 +522,7 @@ public sealed class MonitorWindow : Form
         networkCard.Controls.Add(Row(udpOff, udpOn), 0, 1); networkCard.Controls.Add(destination, 0, 2); networkCard.Controls.Add(vlcRow, 0, 3);
 
         // ---- Header, the four cards, footer
-        var apply = Choice("APPLY"); apply.BackColor = accent; apply.FlatAppearance.BorderColor = accentBorder;
+        var apply = Choice("APPLY"); ((MonitorButton)apply).Selected = true;
         var about = Choice("ABOUT"); about.Click += (_, _) => ShowCredits(dialog);
         var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
