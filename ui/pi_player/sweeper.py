@@ -1,4 +1,4 @@
-"""Local spectrum from the stick: runs rtl_sweep and converts its sweeps. GPL-3.0-or-later."""
+"""Local spectrum: runs rtl_sweep (stick) or pluto_sweep (Pluto) and converts their sweeps. GPL-3.0-or-later."""
 import statistics
 import subprocess
 import threading
@@ -10,6 +10,7 @@ from receiver import exited, end_with_player
 NOISE_LEVEL = 13000
 PER_DB = 1100
 MIN_RISE = 3 * PER_DB   # the flat local floor needs a clearer rise than BATC's
+PLUTO_GAIN_DB = 50      # fixed for the sweep (an automatic gain would differ per step); from the QO-100 test
 
 
 def to_view_scale(tenths_db):
@@ -32,10 +33,13 @@ class Sweeper(QObject):
     def running(self):
         return self.process is not None
 
-    def start(self, start_hz, end_hz, gain_db):
+    def start(self, start_hz, end_hz, gain_db, device="rtl", pluto_uri=""):
         self.stop()
         self.generation += 1
-        process = subprocess.Popen([str(self.root / "build/linux/rtl_sweep"), "%d" % start_hz, "%d" % end_hz, "%.1f" % gain_db],
+        command = ([str(self.root / "build/linux/pluto_sweep"), pluto_uri, "%d" % start_hz, "%d" % end_hz, "%d" % PLUTO_GAIN_DB]
+                   if device == "pluto" else
+                   [str(self.root / "build/linux/rtl_sweep"), "%d" % start_hz, "%d" % end_hz, "%.1f" % gain_db])
+        process = subprocess.Popen(command,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.root, preexec_fn=end_with_player)
         self.process = process
         threading.Thread(target=self.read, args=(process, self.generation), daemon=True).start()

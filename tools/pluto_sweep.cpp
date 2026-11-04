@@ -33,7 +33,7 @@ constexpr int kFft = 8192;            // 2441 Hz bins, as fine as rtl_sweep's 23
 constexpr double kFlatHz = 5.5e6;     // used each side of the centre: within about 1 dB
 constexpr double kBesideHz = 0.3e6;   // a narrow band starts this far above the centre spike
 constexpr int kNotch = 6;             // bins each side of the centre (DC) spike to replace
-constexpr int kFrames = 16;           // FFTs averaged per step (6.6 ms of signal)
+constexpr int kFrames = 64;           // FFTs averaged per step (26 ms of signal; rtl_sweep averages 128 shorter ones)
 
 volatile std::sig_atomic_t stopping = 0;
 void requestStop(int) { stopping = 1; }

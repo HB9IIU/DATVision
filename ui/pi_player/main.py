@@ -44,7 +44,6 @@ PLUTO_LOOKING = "Looking for the Pluto…\n\nIt may be restarting."
 PLUTO_WIFI = "⚠ The Pi reaches the Pluto over Wi-Fi: the picture may break up. Connect the Pi by cable, or the Pluto via USB."
 NO_PLUTO = "Pluto not found\n\nCheck its power supply and its USB or network cable.\nReception resumes by itself."
 STICK_BUSY = "RTL-SDR stick is busy\n\nUnplug it and plug it back in.\nIf that does not help, restart the Pi."
-PLUTO_NO_SCAN = "The local scan needs the RTL-SDR stick\n\nWith the Pluto, QO-100 with the BATC spectrum\nworks; other bands follow."
 SIGNAL_LOST_NOTICE_S = 3   # replace the frozen picture with a clear message
 SIGNAL_LOST_GIVE_UP_S = 30  # LOCAL: stop waiting for the station and scan the band again
 CREDITS = (("DVB-S/S2 decoder", "based on OnAir by Kristijonas Adomaitis (adswill)"),
@@ -390,9 +389,7 @@ class Player(QMainWindow):
         return self.los.get(self.band.key, self.band.converter_los[0] if self.band.converter_los else 0)
 
     def effective_source(self):
-        # BATC only covers QO-100; elsewhere the stick makes the spectrum. The Pluto has no scan yet.
-        if self.band.via_lnb and self.device == "pluto":
-            return "batc"
+        # BATC only covers QO-100; elsewhere the stick or the Pluto makes the spectrum.
         return self.spectrum_source if self.band.via_lnb else "local"
 
     # ---- choosing a Pluto: the ones found on USB and the network
@@ -481,10 +478,6 @@ class Player(QMainWindow):
             self.tune(Signal(BEACON_MHZ, 1500))
 
     def start_scan(self):
-        if self.device == "pluto":
-            self.sweeper.stop()
-            self.show_problem(PLUTO_NO_SCAN, "PLUTO", False)
-            return
         if not self.device_present():
             self.show_missing_device()
             return
@@ -493,7 +486,8 @@ class Player(QMainWindow):
         self.info.reset(None)
         self.info.show_state("SCANNING", "#8cc4ff")
         self.show_placeholder("Scanning the band\n\nTap a signal to watch it")
-        self.sweep_id = self.sweeper.start((start - self.offset_mhz()) * 1e6, (end - self.offset_mhz()) * 1e6, self.gain_db)
+        self.sweep_id = self.sweeper.start((start - self.offset_mhz()) * 1e6, (end - self.offset_mhz()) * 1e6, self.gain_db,
+                                           self.device, self.pluto_uri)
 
     def on_sweep(self, sweep_id, values):
         if sweep_id == self.sweep_id and self.sweeper.running:

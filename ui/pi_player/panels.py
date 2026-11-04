@@ -1045,8 +1045,7 @@ class SettingsPage(QWidget):
         self.gain.setText("%.1f dB" % self.gain_db if device == "rtl" else "automatic")
         self.gain_hint.setText("RF gain of the stick: lower it if strong signals overload it, raise it for weak stations."
                                if device == "rtl" else
-                               "ADALM-Pluto: tap its name to choose another. Its gain is automatic; "
-                               "the local scan needs the RTL-SDR stick for now.")
+                               "ADALM-Pluto: tap its name to choose another. Its gain is automatic.")
 
     def load(self, lnb_mhz, gain_db, source, band, lo_mhz, network_on=False, network_vlc="", device="rtl", pluto=None):
         self.set_pluto(pluto or {})
