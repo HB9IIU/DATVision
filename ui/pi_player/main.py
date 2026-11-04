@@ -30,6 +30,7 @@ from receiver import Receiver, DEFAULT_PLUTO, DEFAULT_STREAM, udp_endpoint, vlc_
 from video import Video
 import shutil
 from ts_info import TsInfo, callsign
+import plutos
 import mpv_video
 from panels import GREEN, AMBER, RED, DIM, GAINS, REQUIRED_ESN0, InfoPanel, ControlPanel, SettingsPage, BandsPage, RecordingsPage, AboutPage, PlutoPage
 
@@ -129,7 +130,7 @@ def stick_present(kind="rtl"):
 
 
 class PlutoSearch(QObject):
-    """Runs pluto_find in the background: (uri, model, serial) for each Pluto found."""
+    """Runs pluto_find in the background: (uri, name, model, serial, address) per way to a Pluto."""
     found = pyqtSignal(list)
 
     def __init__(self, root):
@@ -145,11 +146,11 @@ class PlutoSearch(QObject):
             done = subprocess.run([str(self.root / "build/linux/pluto_find")], capture_output=True, text=True, timeout=20)
             for line in done.stdout.splitlines():
                 parts = line.split("\t")
-                if len(parts) == 4 and parts[0] == "pluto":
+                if len(parts) == 6 and parts[0] == "pluto":
                     plutos.append(tuple(parts[1:]))
         except (OSError, subprocess.SubprocessError):
             pass
-        print("PLUTO SEARCH: %s" % (", ".join(uri for uri, _, _ in plutos) or "none"), flush=True)
+        print("PLUTO SEARCH: %s" % (", ".join(found[0] for found in plutos) or "none"), flush=True)
         self.found.emit(plutos)
 
 
@@ -170,7 +171,10 @@ class Player(QMainWindow):
         self.spectrum_source = "batc"   # QO-100 default; LOCAL scans with the stick
         self.stream_on, self.stream_to = False, udp_endpoint(DEFAULT_STREAM)   # live reception to the home network
         self.device, self.pluto_uri = "rtl", DEFAULT_PLUTO   # the receiver: RTL-SDR stick or ADALM-Pluto
-        self.pluto_name = ""
+        self.pluto_name, self.pluto_serial, self.pluto_address, self.pluto_model = "", "", "", ""
+        self.pluto_resolving = False   # a search to find the saved Pluto again is running
+        self.pluto_waiting = False     # start reception once that search is done
+        self.pluto_searched = 0.0
         try:
             settings = json.loads(self.settings_path.read_text())
             self.volume = max(0, min(100, int(settings.get("volume", 40))))
@@ -185,6 +189,9 @@ class Player(QMainWindow):
             self.device = "pluto" if settings.get("device") == "pluto" else "rtl"
             self.pluto_uri = str(settings.get("pluto_uri", DEFAULT_PLUTO))
             self.pluto_name = str(settings.get("pluto_name", ""))
+            self.pluto_serial = str(settings.get("pluto_serial", ""))
+            self.pluto_address = str(settings.get("pluto_address", ""))
+            self.pluto_model = str(settings.get("pluto_model", ""))
             try:   # no keyboard on the Pi: another destination is set in this file
                 self.stream_to = udp_endpoint(settings.get("udp_destination", DEFAULT_STREAM))
             except ValueError:
@@ -256,7 +263,7 @@ class Player(QMainWindow):
         self.pluto_page = PlutoPage()
         self.pages.addWidget(self.pluto_page)
         self.pluto_search = PlutoSearch(root)
-        self.pluto_search.found.connect(lambda plutos: self.pluto_page.show_found(plutos, pluto_starving()))
+        self.pluto_search.found.connect(self.plutos_found)
         self.settings.choose_pluto.connect(self.open_pluto_page)
         self.pluto_page.search.connect(self.search_plutos)
         self.pluto_page.back.connect(lambda: self.pages.setCurrentWidget(self.settings))
@@ -346,7 +353,7 @@ class Player(QMainWindow):
                                          "mpv" if isinstance(self.video, mpv_video.MpvVideo) else "libVLC",
                                          " · H.266" if self.h266 else " · no H.266 decoder"), flush=True)
         QTimer.singleShot(200, lambda: self.spectrum.set_source(self.effective_source()))
-        QTimer.singleShot(500, self.start_default)
+        QTimer.singleShot(500, self.start_reception)
 
     @property
     def gain_db(self):
@@ -380,9 +387,47 @@ class Player(QMainWindow):
         self.pluto_page.show_searching(self.settings.pluto_uri)
         self.pluto_search.start()
 
-    def pluto_chosen(self, uri, name):
-        print("PLUTO chosen: %s (%s)" % (uri, name), flush=True)
-        self.settings.set_pluto(uri, name)
+    def saved_pluto(self):
+        return {"uri": self.pluto_uri, "name": self.pluto_name, "serial": self.pluto_serial,
+                "address": self.pluto_address, "model": self.pluto_model}
+
+    def plutos_found(self, found):
+        self.pluto_page.show_found(found, pluto_starving())
+        if not self.pluto_resolving:
+            return
+        # Find the saved Pluto again: its address may have changed, or its name be shared.
+        self.pluto_resolving = False
+        match = plutos.choose(self.saved_pluto(), plutos.offered(found)[0])
+        if match and match["uri"] != self.pluto_uri:
+            print("PLUTO found again: %s -> %s" % (self.pluto_uri, match["uri"]), flush=True)
+            self.use_pluto(match)
+            self.save_settings()
+        if self.pluto_waiting:
+            self.pluto_waiting = False
+            self.start_default()
+
+    def start_reception(self):
+        # A saved Pluto may have a new address since last time: find it first (about 2 s).
+        if self.device == "pluto":
+            self.show_placeholder("Looking for the Pluto…")
+            self.find_pluto(then_start=True)
+        else:
+            self.start_default()
+
+    def find_pluto(self, then_start=False):
+        """Search in the background and switch to the saved Pluto's current way in."""
+        self.pluto_resolving, self.pluto_waiting = True, then_start
+        self.pluto_searched = time.monotonic()
+        self.pluto_search.start()
+
+    def use_pluto(self, pluto):
+        self.pluto_uri, self.pluto_name = pluto["uri"], pluto.get("name", "")
+        self.pluto_serial, self.pluto_address = pluto.get("serial", ""), pluto.get("address", "")
+        self.pluto_model = pluto.get("model", "")
+
+    def pluto_chosen(self, pluto):
+        print("PLUTO chosen: %s (%s, %s)" % (pluto["uri"], pluto["name"], pluto["serial"]), flush=True)
+        self.settings.set_pluto(pluto)
         self.settings.set_device("pluto")
         self.pages.setCurrentWidget(self.settings)   # applied with DONE, like every setting
 
@@ -631,6 +676,9 @@ class Player(QMainWindow):
                 self.end_replay()
             return
         if self.waiting_for_stick:
+            # A missing Pluto may be back under another address: search every 10 s.
+            if self.device == "pluto" and not self.pluto_resolving and time.monotonic() - self.pluto_searched > 10:
+                self.find_pluto()
             # Give a replugged stick two seconds to settle before opening it.
             self.stick_seen = self.stick_seen + 1 if self.device_present() else 0
             if self.stick_seen >= 2:
@@ -799,7 +847,7 @@ class Player(QMainWindow):
     def open_settings(self):
         self.settings.load(self.lnb_mhz, self.gain_db, self.spectrum_source, self.band, self.lo_mhz(),
                            self.stream_on, vlc_address(self.stream_to), self.device,
-                           self.pluto_uri, self.pluto_name)
+                           self.saved_pluto())
         self.pages.setCurrentWidget(self.settings)
 
     def close_settings(self):
@@ -808,7 +856,7 @@ class Player(QMainWindow):
         device_changed = (self.settings.device, chosen) != (self.device, self.pluto_uri)
         self.device = self.settings.device
         if self.settings.pluto_uri:
-            self.pluto_uri, self.pluto_name = self.settings.pluto_uri, self.settings.pluto_name
+            self.use_pluto(self.settings.pluto)
         if self.settings.network_on != self.stream_on:
             self.stream_on = self.settings.network_on
             self.receiver.stream_to = self.stream_to if self.stream_on else None   # applies at once
@@ -988,7 +1036,9 @@ class Player(QMainWindow):
                                                       "udp_enabled": self.stream_on,
                                                       "udp_destination": "udp://%s:%d" % self.stream_to,
                                                       "device": self.device, "pluto_uri": self.pluto_uri,
-                                                      "pluto_name": self.pluto_name}, indent=2))
+                                                      "pluto_name": self.pluto_name, "pluto_serial": self.pluto_serial,
+                                                      "pluto_address": self.pluto_address,
+                                                      "pluto_model": self.pluto_model}, indent=2))
         except OSError:
             pass
 
