@@ -161,7 +161,7 @@ public sealed class MonitorWindow : Form
         _bands.Click += async (_, _) => await ChooseBandAsync(); _settings.Click += async (_, _) => await ConfigureAsync();
         _quit.Click += (_, _) => Close(); // Clicks on the picture come through VideoClicks (ffplay's window would swallow them):
         // a click ends a replay, a double click opens the separate video window.
-        _clicks = new VideoClicks(_video, () => GetForegroundWindow() == Handle || (_playerWindow != null && GetForegroundWindow() == _playerWindow.Handle),
+        _clicks = new VideoClicks(_video, window => window == Handle || (_playerWindow != null && window == _playerWindow.Handle),
             Path.Combine(root, "test-output", "player-clicks.log"));
         _clicks.Clicked += async second => { if (_recording) await EndReplayAsync(); else if (second) TogglePlayerWindow(); };
         _video.Resize += (_, _) => FitVideo();
@@ -810,7 +810,6 @@ public sealed class MonitorWindow : Form
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern IntPtr SetWindowLongPtr(IntPtr window, int index, IntPtr value);
     [DllImport("user32.dll")] private static extern bool EnableWindow(IntPtr window, bool enable);
-    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern bool MoveWindow(IntPtr window, int x, int y, int width, int height, bool repaint);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
 }
