@@ -3,9 +3,13 @@
 //
 //   pluto_sweep uri start_Hz end_Hz gain_dB
 //
-// The Pluto sees 20 MHz at once (rtl_sweep: 2.4 MHz), so a band needs few steps:
-// QO-100 one, 23 cm two. At each step it averages windowed FFTs and prints one
-// line per complete sweep on standard output:
+// The Pluto sees 20 MHz at once (rtl_sweep: 2.4 MHz), but its analog filter falls
+// off towards the edges: measured on LNB noise, -1.3 dB at 6 MHz from the centre,
+// -3.8 dB at 8 MHz. Only the flat +/-5.5 MHz is used, so QO-100 takes one step,
+// 23 cm two, 6 cm three; the steps overlap evenly. A band narrower than about
+// 5 MHz is received just above the centre, so the centre (DC) spike lies outside
+// it. At each step it averages windowed FFTs and prints one line per complete
+// sweep on standard output:
 //
 //   sweep <first bin Hz> <bin width Hz> <bins> <dB x 10>,<dB x 10>,...
 //
@@ -26,7 +30,8 @@ namespace {
 
 constexpr long long kRate = 20000000;
 constexpr int kFft = 8192;            // 2441 Hz bins, as fine as rtl_sweep's 2344 Hz
-constexpr int kKeep = kFft * 2 / 5;   // bins kept each side of the centre: the flat 80 %
+constexpr double kFlatHz = 5.5e6;     // used each side of the centre: within about 1 dB
+constexpr double kBesideHz = 0.3e6;   // a narrow band starts this far above the centre spike
 constexpr int kNotch = 6;             // bins each side of the centre (DC) spike to replace
 constexpr int kFrames = 16;           // FFTs averaged per step (6.6 ms of signal)
 
@@ -90,11 +95,19 @@ int main(int argc, char** argv) {
     std::signal(SIGTERM, requestStop);
     std::signal(SIGPIPE, SIG_IGN);  // a closed reader is seen by fflush instead
 
-    const double binHz = (double)kRate / kFft, usableHz = 2 * kKeep * binHz;
-    const int bins = (int)((end - start) / binHz) + 1;
-    const int steps = (int)std::ceil((end - start) / usableHz);
-    std::vector<long long> centres(steps);
-    for (int s = 0; s < steps; s++) centres[s] = std::llround(start + usableHz * (s + 0.5));
+    const double binHz = (double)kRate / kFft, usableHz = 2 * kFlatHz, span = end - start;
+    const int keep = (int)(kFlatHz / binHz);   // bins used each side of a step's centre
+    const int bins = (int)(span / binHz) + 1;
+    std::vector<long long> centres;
+    if (span + kBesideHz <= kFlatHz) {
+        centres.push_back(std::llround(start - kBesideHz));   // the whole band beside the spike
+    } else {
+        const int steps = (int)std::ceil(span / usableHz);
+        const double first = start + kFlatHz, last = end - kFlatHz;
+        for (int s = 0; s < steps; s++)
+            centres.push_back(std::llround(steps == 1 ? (start + end) / 2 : first + (last - first) * s / (steps - 1)));
+    }
+    const int steps = (int)centres.size();
 
     std::vector<float> window(kFft);
     std::vector<cf> twiddle(kFft / 2);
@@ -152,8 +165,10 @@ int main(int argc, char** argv) {
         line = head;
         for (int b = 0; b < bins; b++) {
             const double f = start + b * binHz;
-            const int s = std::min(steps - 1, (int)((f - start) / usableHz));
-            const int k = std::max(-kKeep, std::min(kKeep, (int)std::lround((f - centres[s]) / binHz)));
+            int s = 0;   // the step whose centre is nearest: it sees this bin in its flattest part
+            for (int t = 1; t < steps; t++)
+                if (std::fabs(f - centres[t]) < std::fabs(f - centres[s])) s = t;
+            const int k = std::max(-keep, std::min(keep, (int)std::lround((f - centres[s]) / binHz)));
             char value[16];
             std::snprintf(value, sizeof value, b ? ",%d" : "%d", (int)std::lround(100 * std::log10(step[s][kFft / 2 + k] + 1e-12)));
             line += value;
