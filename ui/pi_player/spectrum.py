@@ -1,7 +1,7 @@
 """Qt BATC spectrum feed and touch/click tuning view. GPL-3.0-or-later."""
 import struct
 import time
-from PyQt5.QtCore import Qt, QUrl, QTimer, pyqtSignal, QPointF, QRectF
+from PyQt5.QtCore import Qt, QUrl, QTimer, pyqtSignal, QPoint, QPointF, QRectF
 from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen
 from PyQt5.QtNetwork import QNetworkRequest
 from PyQt5.QtWebSockets import QWebSocket
@@ -102,7 +102,12 @@ class Spectrum(QWidget):
         data = bytes(data)
         if self.source != "batc" or not 32 <= len(data) <= 65536 or len(data) % 2:
             return
-        self.accept(struct.unpack("<%dH" % (len(data) // 2), data))
+        values = struct.unpack("<%dH" % (len(data) // 2), data)
+        # BATC too: the height follows the strongest signal (a robust peak, rising at
+        # once and falling slowly), so the beacon is not cut off at the top.
+        peak = sorted(values)[int(len(values) * 0.995)]
+        self.view_top = peak if peak > self.view_top else 0.9 * self.view_top + 0.1 * peak
+        self.accept(values)
 
     def set_local(self, values):
         if self.source == "local":
@@ -117,7 +122,10 @@ class Spectrum(QWidget):
         if self.source == "local" and self.view_top:
             # Noise floor at 15 % of the height, the strongest signal at 90 %.
             return max(0, min(1, 0.15 + 0.75 * (sample - sweeper.NOISE_LEVEL) / (self.view_top - sweeper.NOISE_LEVEL)))
-        return max(0, min(1, (sample / 65535 - 0.12) / (0.58 - 0.12)))
+        # BATC: its noise floor at 0.12 of full scale; the strongest signal at 88 % of the
+        # height, leaving a margin at the top; weak bands keep the former fixed scale.
+        floor, top = 0.12 * 65535, max(0.58 * 65535, self.view_top)
+        return max(0, min(1, 0.88 * (sample - floor) / (top - floor)))
 
     def accept(self, frame):
         self.frame = frame
@@ -248,11 +256,12 @@ class Spectrum(QWidget):
             else:
                 text = "BATC spectrum reconnecting…" if not self.online else "BATC spectrum stale…"
         if text:
+            # Centred at the top of the plot.
             rect = painter.fontMetrics().boundingRect(text).adjusted(-px(5), -px(4), px(5), px(4))
-            rect.moveTopLeft(self.rect().topLeft())
+            rect.moveTopLeft(QPoint((width - rect.width()) // 2, 0))
             painter.fillRect(rect, QColor("#0c1620"))
             painter.setPen(QColor("#dde8f1"))
-            painter.drawText(px(6), painter.fontMetrics().ascent() + px(4), text)
+            painter.drawText(rect.left() + px(5), painter.fontMetrics().ascent() + px(4), text)
 
     def stop(self):
         try:
