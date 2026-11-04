@@ -1083,7 +1083,7 @@ class Player(QMainWindow):
 
 
 def welcome(root):
-    """The DATVision logo and version for 2 s at start; a tap closes it sooner. A window
+    """The DATVision logo and version for 4 s at start; a tap closes it sooner. A window
     of its own, so that the video appearing meanwhile cannot cover it."""
     wordmark = QPixmap(str(root / "assets/branding/datvision-wordmark.png"))
     if wordmark.isNull():
@@ -1117,7 +1117,7 @@ def welcome(root):
     # Rounded corners: only the card itself belongs to the window.
     splash.setMask(card.mask())
     splash.show()
-    QTimer.singleShot(2000, splash.close)
+    QTimer.singleShot(4000, splash.close)
     return splash
 
 
