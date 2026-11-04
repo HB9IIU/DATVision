@@ -157,8 +157,10 @@ class Spectrum(QWidget):
         self.update()
 
     def rescan_area(self):
-        # Touch target in the middle of the plot while a local sweep is paused.
-        return QRectF((self.width() - px(190)) / 2, (px(10) + self.height() - px(24) - px(36)) / 2, px(190), px(36))
+        # Touch target in the upper part of the plot while a local sweep is paused, above
+        # the signals that are usually lower down (a centred button sat on the tuned one).
+        top = px(10) + (self.height() - px(24) - px(10) - px(36)) * 0.25
+        return QRectF((self.width() - px(190)) / 2, top, px(190), px(36))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.width():
