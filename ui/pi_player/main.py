@@ -40,6 +40,8 @@ RTL_SDR_IDS = {("0bda", "2838"), ("0bda", "2832")}
 PLUTO_IDS = {("0456", "b673")}   # ADALM-Pluto and clones such as the PlutoSky
 NO_STICK = "RTL-SDR stick not found\n\nUnplug it and plug it back in.\nReception resumes by itself."
 PLUTO_NO_POWER = "Pluto is not getting enough power\n\nConnect a 5 V charger to its PWR socket.\nReception resumes by itself."
+PLUTO_LOOKING = "Looking for the Pluto…\n\nIt may be restarting."
+PLUTO_WIFI = "⚠ The Pi reaches the Pluto over Wi-Fi: the picture may break up. Connect the Pi by cable, or the Pluto via USB."
 NO_PLUTO = "Pluto not found\n\nCheck its power supply and its USB or network cable.\nReception resumes by itself."
 STICK_BUSY = "RTL-SDR stick is busy\n\nUnplug it and plug it back in.\nIf that does not help, restart the Pi."
 PLUTO_NO_SCAN = "The local scan needs the RTL-SDR stick\n\nWith the Pluto, QO-100 with the BATC spectrum\nworks; other bands follow."
@@ -104,6 +106,19 @@ def pi_model():
 # A Pi 4 only just keeps up with 1500 kS/s: a receiver that drops a frame when behind,
 # instead of losing stick samples, keeps the beacon decoding there.
 SLOW_PI = "Raspberry Pi 4" in pi_model()
+
+
+def over_wifi(uri):
+    """Whether the Pi reaches a network Pluto (ip:…) over Wi-Fi: too little for its samples."""
+    if not uri.startswith("ip:"):
+        return False
+    try:
+        address = socket.gethostbyname(uri[3:])
+        route = subprocess.run(["ip", "route", "get", address], capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    found = re.search(r"\bdev (\S+)", route)
+    return bool(found) and found.group(1).startswith("wl")
 
 
 def pluto_starving():
@@ -174,6 +189,8 @@ class Player(QMainWindow):
         self.pluto_name, self.pluto_serial, self.pluto_address, self.pluto_model = "", "", "", ""
         self.pluto_resolving = False   # a search to find the saved Pluto again is running
         self.pluto_waiting = False     # start reception once that search is done
+        self.pluto_missing_since = None   # when the chosen Pluto stopped answering
+        self.pluto_wifi = False           # the chosen Pluto is reached over Wi-Fi
         self.pluto_searched = 0.0
         try:
             settings = json.loads(self.settings_path.read_text())
@@ -392,7 +409,8 @@ class Player(QMainWindow):
                 "address": self.pluto_address, "model": self.pluto_model}
 
     def plutos_found(self, found):
-        self.pluto_page.show_found(found, pluto_starving())
+        wifi = {uri for uri, *_ in found if over_wifi(uri)}
+        self.pluto_page.show_found(found, pluto_starving(), wifi)
         if not self.pluto_resolving:
             return
         # Find the saved Pluto again: its address may have changed, or its name be shared.
@@ -443,8 +461,13 @@ class Player(QMainWindow):
 
     def show_missing_device(self):
         if self.device == "pluto":
+            # A Pluto that restarts is gone for half a minute: first say it is being looked for.
+            if self.pluto_missing_since is None:
+                self.pluto_missing_since = time.monotonic()
             if pluto_starving():
                 self.show_problem(PLUTO_NO_POWER, "PLUTO POWER", True)
+            elif time.monotonic() - self.pluto_missing_since < 20:
+                self.show_problem(PLUTO_LOOKING, "SEARCHING", True, AMBER)
             else:
                 self.show_problem(NO_PLUTO, "NO PLUTO", True)
         else:
@@ -526,14 +549,14 @@ class Player(QMainWindow):
         self.placeholder.setStyleSheet("background: black; color: %s; font-size: %dpx; font-weight: 600;" % (color, px(30)))
         self.video_stack.setCurrentWidget(self.placeholder)
 
-    def show_problem(self, message, state, wait_for_stick):
+    def show_problem(self, message, state, wait_for_stick, color=RED):
         print("PROBLEM: " + message.splitlines()[0], flush=True)
         self.cancel_calibration()
         self.sweeper.stop()
         self.stop(scan=False)
         self.waiting_for_stick = wait_for_stick
         self.stick_seen = 0
-        self.info.show_state(state, RED)
+        self.info.show_state(state, color)
         self.show_placeholder(message, "#dde8f1")
 
     def tune(self, signal):
@@ -578,6 +601,11 @@ class Player(QMainWindow):
                 port = reservation.getsockname()[1]
             self.video.play(port, self.output_volume())
             self.session_id = self.receiver.tune(signal, self.offset_mhz(), port, self.gain_db, self.device, self.pluto_uri)
+            if self.device == "pluto":
+                self.pluto_missing_since = None
+                self.pluto_wifi = over_wifi(self.pluto_uri)
+                if self.pluto_wifi:
+                    print("PLUTO over Wi-Fi: " + self.pluto_uri, flush=True)
         except Exception as error:
             self.show_problem(str(error), "ERROR", False)
             return
@@ -675,6 +703,8 @@ class Player(QMainWindow):
             if self.video.ended:
                 self.end_replay()
             return
+        if self.current and self.device == "pluto" and self.pluto_wifi:
+            self.spectrum.show_message(PLUTO_WIFI)   # renewed every tick: it stays while tuned
         if self.waiting_for_stick:
             # A missing Pluto may be back under another address: search every 10 s.
             if self.device == "pluto" and not self.pluto_resolving and time.monotonic() - self.pluto_searched > 10:

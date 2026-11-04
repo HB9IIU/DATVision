@@ -707,7 +707,7 @@ class PlutoPage(QWidget):
         self.show_power(False)
         self.search_button.setEnabled(False)
 
-    def show_found(self, found, starving=False):
+    def show_found(self, found, starving=False, wifi=()):
         plutos, twice = offered(found)
         self.clear()
         self.spinner.hide()
@@ -731,6 +731,9 @@ class PlutoPage(QWidget):
             title.setStyleSheet(style("font-size: 24px; font-weight: 700; color: #edf5fa; background: transparent;"))
             detail = QLabel(model if serial.startswith("ffff") or serial == "?" else "%s  ·  serial %s" % (model, serial))
             detail.setStyleSheet(style("font-size: 16px; color: #9cb4c5; background: transparent;"))
+            if uri in wifi:   # its samples are too much for Wi-Fi
+                detail.setText("⚠ Reached over Wi-Fi: the picture may break up. Connect the Pi by cable.")
+                detail.setStyleSheet(style("font-size: 16px; font-weight: 600; color: #ffbf47; background: transparent;"))
             for text in (title, detail):
                 text.setAttribute(Qt.WA_TransparentForMouseEvents)
                 lines.addWidget(text)

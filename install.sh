@@ -19,6 +19,9 @@ ARCHIVE="pi-datv-rx-$VERSION-arm64.tar.gz"
 URL="https://github.com/$REPO/releases/download/v$VERSION"
 UDEV_RULE=/etc/udev/rules.d/60-pi-datv-rx.rules
 BLACKLIST=/etc/modprobe.d/pi-datv-rx-blacklist.conf
+# A Pluto also shows a small USB drive; the desktop then fails to open it with two
+# "Not authorized" windows each time the Pluto connects.
+PLUTO_RULE=/etc/udev/rules.d/61-pi-datv-rx-pluto-no-automount.rules
 # The folder of this script; empty when it arrives through a pipe from curl.
 HERE=$([[ -f ${BASH_SOURCE[0]:-} ]] && cd "$(dirname "${BASH_SOURCE[0]}")" && pwd || true)
 LAUNCHER="$HOME/.local/share/applications/rtl-datv-player.desktop"
@@ -54,7 +57,7 @@ uninstall() {
   stop_player
   rm -rf "$APP_DIR"
   rm -f "$LAUNCHER" "$AUTOSTART" "$DESKTOP_DIR/DATVision.desktop" "$DESKTOP_DIR/RTL DATV Player.desktop"
-  sudo rm -f "$UDEV_RULE" "$BLACKLIST"
+  sudo rm -f "$UDEV_RULE" "$BLACKLIST" "$PLUTO_RULE"
   sudo udevadm control --reload-rules || true
   bold "Uninstalled."
   exit 0
@@ -115,6 +118,10 @@ sudo tee "$BLACKLIST" >/dev/null <<'EOF'
 blacklist dvb_usb_rtl28xxu
 blacklist rtl2832
 blacklist rtl2830
+EOF
+sudo tee "$PLUTO_RULE" >/dev/null <<'EOF'
+# ADALM-Pluto (and clones): do not mount its firmware drive (DATVision).
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="0456", ATTRS{idProduct}=="b673", ENV{UDISKS_IGNORE}="1"
 EOF
 sudo udevadm control --reload-rules
 sudo udevadm trigger --subsystem-match=usb || true
