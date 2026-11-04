@@ -7,7 +7,7 @@ foreach ($relative in @('build/windows/monitor/DatvRx.Player.exe', 'build/window
 if (Get-Process DatvRx.Player -ErrorAction SilentlyContinue) {
     throw 'Close the current DATV player before opening the Windows monitor.'
 }
-if (Get-Process rtl_sdr,rtl_iq,rtl_sweep,datvrx -ErrorAction SilentlyContinue) {
+if (Get-Process rtl_sdr,rtl_iq,rtl_sweep,pluto_iq,pluto_sweep,datvrx -ErrorAction SilentlyContinue) {
     throw 'An SDR capture is already running. Close it before opening the monitor.'
 }
 $env:DATVRX_MSYS_ROOT = $MsysRoot

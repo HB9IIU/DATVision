@@ -26,6 +26,8 @@ public sealed class LocalReceiver : IReceiverBackend
     private readonly SemaphoreSlim _gate = new(1);
     private Session _session;
     public string UdpDestination { get; set; }
+    // The ADALM-Pluto to receive with (usb:… or ip:…), or null for the RTL-SDR stick.
+    public string PlutoUri { get; set; }
     public event Action<string> Status;
     public event Action<string> VideoInfo;
     public event Action<StreamService> ServiceInfo;
@@ -75,12 +77,13 @@ public sealed class LocalReceiver : IReceiverBackend
         _msysBin = Directory.Exists(bundled) ? bundled : Path.Combine(Environment.GetEnvironmentVariable("DATVRX_MSYS_ROOT") ?? @"C:\msys64", "ucrt64/bin");
     }
 
-    public static string Validate(TuneRequest request)
+    public static string Validate(TuneRequest request, bool pluto = false)
     {
         double intermediate = request.RfMhz - request.LnbMhz;
-        if (!double.IsFinite(intermediate) || intermediate < 24 || intermediate > 1766)
-            return "Frequency is outside this RTL-SDR setup's range.";
-        if (!double.IsFinite(request.GainDb) || request.GainDb < 0 || request.GainDb > 50)
+        if (!double.IsFinite(intermediate) || intermediate < (pluto ? 47 : 24) || intermediate > (pluto ? 6000 : 1766))
+            return pluto ? "Frequency is outside the Pluto's range." : "Frequency is outside this RTL-SDR setup's range.";
+        // The Pluto's gain is automatic; the stick's is set by hand.
+        if (!pluto && (!double.IsFinite(request.GainDb) || request.GainDb < 0 || request.GainDb > 50))
             return "RF gain must be between 0 and 50 dB.";
         if (request.SymbolRateKs < 25 || request.SymbolRateKs > 1500)
             return "This setup supports 25–1500 kS/s. Choose a narrower signal.";
@@ -89,14 +92,15 @@ public sealed class LocalReceiver : IReceiverBackend
 
     public async Task TuneAsync(TuneRequest request, int volume)
     {
-        string error = Validate(request);
+        string error = Validate(request, PlutoUri != null);
         if (error != null) throw new ArgumentException(error);
         await _gate.WaitAsync();
         try
         {
             await StopCoreAsync();
             Interlocked.Exchange(ref _lastTransportTick, 0);
-            int sampleRate = request.SymbolRateKs >= 1250 ? 2560000 : 2400000;
+            // The Pluto's AD936x starts at about 2.08 MS/s.
+            int sampleRate = PlutoUri != null || request.SymbolRateKs >= 1250 ? 2560000 : 2400000;
             long frequency = (long)Math.Round((request.RfMhz - request.LnbMhz) * 1e6);
             var session = new Session(Path.Combine(_root, "test-output"));
             _session = session;
@@ -131,8 +135,11 @@ public sealed class LocalReceiver : IReceiverBackend
                     ["-", "--rate", (sampleRate / 1e6).ToString(CultureInfo.InvariantCulture),
                      "--format", "cu8", "--rs", (request.SymbolRateKs / 1000.0).ToString(CultureInfo.InvariantCulture),
                      "--std", "0", "--roll", "0.25", "--no-realtime", "--cells", "256"], input: true, output: true);
-                session.Source = Start(Path.Combine(_root, "build/windows/rtl_iq.exe"),
-                    [frequency.ToString(CultureInfo.InvariantCulture), sampleRate.ToString(), request.GainDb.ToString(CultureInfo.InvariantCulture), "--watch-stdin"], input: true, output: true);
+                session.Source = PlutoUri != null
+                    ? Start(Path.Combine(_root, "build/windows/pluto_iq.exe"),
+                        [PlutoUri, frequency.ToString(CultureInfo.InvariantCulture), sampleRate.ToString(), "auto", "--watch-stdin"], input: true, output: true)
+                    : Start(Path.Combine(_root, "build/windows/rtl_iq.exe"),
+                        [frequency.ToString(CultureInfo.InvariantCulture), sampleRate.ToString(), request.GainDb.ToString(CultureInfo.InvariantCulture), "--watch-stdin"], input: true, output: true);
                 session.Tasks.Add(ReadLog(session, session.Source, "radio", line =>
                 {
                     if (line.Contains("error", StringComparison.OrdinalIgnoreCase) || line.Contains("failed", StringComparison.OrdinalIgnoreCase))
@@ -310,7 +317,7 @@ public sealed class LocalReceiver : IReceiverBackend
             try
             {
                 session.Player = Start(Path.Combine(_msysBin, "ffplay.exe"),
-                    ["-hide_banner", "-loglevel", "info", "-nostats", "-autoexit", "-loop", "0", "-volume", "100", "-window_title", "RTL DATV Video", "-i", Path.GetFullPath(path)]);
+                    ["-hide_banner", "-loglevel", "info", "-nostats", "-autoexit", "-volume", "100", "-window_title", "RTL DATV Video", "-i", Path.GetFullPath(path)]);
                 session.Tasks.Add(ReadLog(session, session.Player, "video", line => { if (_session == session) VideoInfo?.Invoke(line.Trim()); }));
                 session.Tasks.Add(Monitor(session));
                 var parser = new TransportInfo();

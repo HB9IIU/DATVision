@@ -138,4 +138,18 @@ using (var listener = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint
     var second = await listener.ReceiveAsync(timeout.Token);
     Require(first.Buffer.Concat(second.Buffer).SequenceEqual(tsPackets) && udpError == null, "UDP socket forwards live TS bytes intact over loopback");
 }
+// Pluto choice: the same rules as the Pi's tests (ui/pi_player/plutos.py).
+{
+    const string fishModel = "FISHBall-PlutoSky (Z7020-AD9361)", fishSerial = "4PPGNSN3Y63AOTBG";
+    const string originalModel = "Analog Devices PlutoSDR Rev.C (Z7010-AD9363A)", originalSerial = "ffffffffffffffff";
+    var (offered, twice) = PlutoChoice.Offered([new("ip:192.168.2.1", "fishball.local", fishModel, fishSerial, "192.168.2.1"),
+        new("ip:192.168.0.205", "pluto.local", originalModel, originalSerial, "192.168.0.205"), new("usb:3.2.5", "USB", fishModel, fishSerial, "-")]);
+    Require(string.Join(",", offered.Select(p => p.Uri)) == "ip:192.168.0.205,usb:3.2.5" && twice.Count == 0, "A Pluto's USB network link is hidden when it is on USB");
+    var (same, sameNames) = PlutoChoice.Offered([new("ip:192.168.0.20", "pluto.local", originalModel, originalSerial, "192.168.0.20"),
+        new("ip:192.168.0.21", "pluto.local", originalModel, originalSerial, "192.168.0.21")]);
+    Require(sameNames.SequenceEqual(["pluto.local"]) && PlutoChoice.Choose("ip:192.168.0.21", "pluto.local", originalSerial, "192.168.0.21", same)?.Uri == "ip:192.168.0.21",
+        "Two Plutos with one name are told apart by address");
+    var (moved, _) = PlutoChoice.Offered([new("ip:192.168.0.42", "fishball.local", fishModel, fishSerial, "192.168.0.42")]);
+    Require(PlutoChoice.Choose("ip:192.168.0.43", "PlutoSky.local", fishSerial, "192.168.0.43", moved)?.Uri == "ip:192.168.0.42", "A Pluto with a new address is found by its serial");
+}
 Console.WriteLine("All player checks passed.");

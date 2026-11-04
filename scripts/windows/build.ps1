@@ -17,8 +17,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Rust compiler is unavailable. Repair the Rust 
 $env:PATH = "$toolBin;$env:PATH"
 $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = Join-Path $toolBin 'gcc.exe'
 $buildDir = Join-Path $projectRoot 'build/windows'
-& (Join-Path $toolBin 'cmake.exe') -S $projectRoot -B $buildDir -G Ninja '-DCMAKE_BUILD_TYPE=Release' '-DDATVRX_RTL=ON' "-DCMAKE_C_COMPILER=$toolBin/gcc.exe" "-DCMAKE_CXX_COMPILER=$toolBin/g++.exe"
+# The Pluto tools need libiio: pacman -S mingw-w64-ucrt-x86_64-libiio (see docs/building.md).
+$pluto = if (Test-Path -LiteralPath (Join-Path $MsysRoot 'ucrt64/include/iio.h')) { 'ON' } else { 'OFF' }
+& (Join-Path $toolBin 'cmake.exe') -S $projectRoot -B $buildDir -G Ninja '-DCMAKE_BUILD_TYPE=Release' '-DDATVRX_RTL=ON' "-DDATVRX_PLUTO=$pluto" "-DCMAKE_C_COMPILER=$toolBin/gcc.exe" "-DCMAKE_CXX_COMPILER=$toolBin/g++.exe"
 if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
 & (Join-Path $toolBin 'cmake.exe') --build $buildDir --parallel 2
 if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 Write-Host "Receiver: $buildDir/datvrx.exe"
+Write-Host "Pluto tools: $pluto"

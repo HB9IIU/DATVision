@@ -147,5 +147,59 @@ class NetworkStreamChecks(unittest.TestCase):
                 udp_endpoint(bad)
 
 
+
+class PlutoChoiceChecks(unittest.TestCase):
+    FISH = ("FISHBall-PlutoSky (Z7020-AD9361)", "4PPGNSN3Y63AOTBG")
+    ORIGINAL = ("Analog Devices PlutoSDR Rev.C (Z7010-AD9363A)", "ffffffffffffffff")
+
+    def test_usb_link_is_hidden_when_the_same_pluto_is_on_usb(self):
+        from plutos import offered
+        found = [("ip:192.168.2.1", "fishball.local", *self.FISH, "192.168.2.1"),
+                 ("ip:192.168.0.205", "pluto.local", *self.ORIGINAL, "192.168.0.205"),
+                 ("usb:3.2.5", "USB", *self.FISH, "-")]
+        plutos, twice = offered(found)
+        self.assertEqual([p["uri"] for p in plutos], ["ip:192.168.0.205", "usb:3.2.5"])
+        self.assertEqual(twice, [])
+
+    def test_usb_link_is_kept_and_marked_without_direct_usb(self):
+        from plutos import offered
+        plutos, _ = offered([("ip:192.168.2.1", "pluto.local", *self.ORIGINAL, "192.168.2.1")])
+        self.assertEqual(len(plutos), 1)
+        self.assertTrue(plutos[0]["link"])
+
+    def test_two_factory_new_plutos_share_a_name(self):
+        from plutos import offered, choose
+        found = [("ip:192.168.0.20", "pluto.local", *self.ORIGINAL, "192.168.0.20"),
+                 ("ip:192.168.0.21", "pluto.local", *self.ORIGINAL, "192.168.0.21")]
+        plutos, twice = offered(found)
+        self.assertEqual(twice, ["pluto.local"])
+        saved = {"uri": "ip:192.168.0.21", "name": "pluto.local", "serial": "ffffffffffffffff", "address": "192.168.0.21"}
+        self.assertEqual(choose(saved, plutos)["uri"], "ip:192.168.0.21")   # the name is ambiguous: by address
+
+    def test_serial_finds_a_pluto_with_a_new_address(self):
+        from plutos import offered, choose
+        plutos, _ = offered([("ip:192.168.0.42", "fishball.local", *self.FISH, "192.168.0.42")])
+        saved = {"uri": "ip:192.168.0.43", "name": "PlutoSky.local", "serial": self.FISH[1], "address": "192.168.0.43"}
+        self.assertEqual(choose(saved, plutos)["uri"], "ip:192.168.0.42")
+
+    def test_serial_keeps_the_same_path_kind(self):
+        from plutos import offered, choose
+        plutos, _ = offered([("ip:192.168.0.42", "fishball.local", *self.FISH, "192.168.0.42"),
+                             ("usb:3.2.5", "USB", *self.FISH, "-")])
+        self.assertEqual(choose({"uri": "usb:3.2.4", "serial": self.FISH[1]}, plutos)["uri"], "usb:3.2.5")
+        self.assertEqual(choose({"uri": "ip:192.168.0.43", "serial": self.FISH[1]}, plutos)["uri"], "ip:192.168.0.42")
+
+    def test_unique_name_finds_an_original_pluto_with_a_new_address(self):
+        from plutos import offered, choose
+        plutos, _ = offered([("ip:192.168.0.99", "pluto.local", *self.ORIGINAL, "192.168.0.99")])
+        saved = {"uri": "ip:192.168.0.205", "name": "pluto.local", "serial": "ffffffffffffffff", "address": "192.168.0.205"}
+        self.assertEqual(choose(saved, plutos)["uri"], "ip:192.168.0.99")
+
+    def test_nothing_matches(self):
+        from plutos import offered, choose
+        plutos, _ = offered([("ip:192.168.0.99", "other.local", *self.ORIGINAL, "192.168.0.99")])
+        self.assertIsNone(choose({"uri": "ip:192.168.0.205", "name": "pluto.local", "address": "192.168.0.205"}, plutos))
+
+
 if __name__ == "__main__":
     unittest.main()

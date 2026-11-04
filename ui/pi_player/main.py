@@ -11,13 +11,15 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import traceback
+import urllib.request
 
-from PyQt5.QtCore import Qt, QTimer, QEvent
-from PyQt5.QtGui import QFont, QKeySequence
+from PyQt5.QtCore import Qt, QTimer, QEvent, QObject, QRectF, pyqtSignal
+from PyQt5.QtGui import QColor, QFont, QKeySequence, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QShortcut, QMessageBox, QFrame, QStackedLayout, QStackedWidget)
+                             QShortcut, QMessageBox, QFrame, QStackedLayout, QStackedWidget, QSplashScreen)
 import bands
 import calibration
 import ui_scale
@@ -29,17 +31,20 @@ from receiver import Receiver, DEFAULT_PLUTO, DEFAULT_STREAM, udp_endpoint, vlc_
 from video import Video
 import shutil
 from ts_info import TsInfo, callsign
+import plutos
 import mpv_video
-from panels import GREEN, AMBER, RED, DIM, GAINS, REQUIRED_ESN0, InfoPanel, ControlPanel, SettingsPage, BandsPage, RecordingsPage, AboutPage
+from panels import GREEN, AMBER, RED, DIM, GAINS, REQUIRED_ESN0, InfoPanel, ControlPanel, SettingsPage, BandsPage, RecordingsPage, AboutPage, PlutoPage
 
 REPORT = re.compile(r"(DVB-S2X|DVB-S2|DVB-S) (\S+) (\d+/\d+)\S*(?: short)?(?: pilots)?\s+[\d.]+ Msym/s"
                     r"\s+Es/N0 ([\d.-]+) dB\s+ok \d+\s+bad (\d+)")
 RTL_SDR_IDS = {("0bda", "2838"), ("0bda", "2832")}
 PLUTO_IDS = {("0456", "b673")}   # ADALM-Pluto and clones such as the PlutoSky
 NO_STICK = "RTL-SDR stick not found\n\nUnplug it and plug it back in.\nReception resumes by itself."
+PLUTO_NO_POWER = "Pluto is not getting enough power\n\nConnect a 5 V charger to its PWR socket.\nReception resumes by itself."
+PLUTO_LOOKING = "Looking for the Pluto…\n\nIt may be restarting."
+PLUTO_WIFI = "⚠ The Pi reaches the Pluto over Wi-Fi: the picture may break up. Connect the Pi by cable, or the Pluto via USB."
 NO_PLUTO = "Pluto not found\n\nCheck its power supply and its USB or network cable.\nReception resumes by itself."
 STICK_BUSY = "RTL-SDR stick is busy\n\nUnplug it and plug it back in.\nIf that does not help, restart the Pi."
-PLUTO_NO_SCAN = "The local scan needs the RTL-SDR stick\n\nWith the Pluto, QO-100 with the BATC spectrum\nworks; other bands follow."
 SIGNAL_LOST_NOTICE_S = 3   # replace the frozen picture with a clear message
 SIGNAL_LOST_GIVE_UP_S = 30  # LOCAL: stop waiting for the station and scan the band again
 CREDITS = (("DVB-S/S2 decoder", "based on OnAir by Kristijonas Adomaitis (adswill)"),
@@ -47,6 +52,7 @@ CREDITS = (("DVB-S/S2 decoder", "based on OnAir by Kristijonas Adomaitis (adswil
            ("DVB-S/S2 contributions", "Arclamp"),
            ("BATC spectrum, signal finder", "HB9IIU Experimental H.266 Player"),
            ("Magic eye", "after HB9IIU SDR-Tiouner, inspired by the Lynx DATV Receiver (G8YTZ)"),
+           ("Pluto support", "libiio by Analog Devices; tested with the Tezuka firmware by F5OEO"),
            ("Video, interface", "mpv (libVLC fallback), PyQt5"))
 LICENCE = "GPL v3 · see LICENSE and the bundled source and notices."
 
@@ -69,6 +75,8 @@ STYLE = """
     QPushButton#half { font-size: 12px; }
     QPushButton#accent { background: #1f5a44; border-color: #50d7a0; }
     QPushButton#band { min-height: 116px; }
+    QPushButton#plutoCard { min-height: 92px; text-align: left; }
+    QPushButton#plutoCard[current="true"] { background: #1f5a44; border-color: #50d7a0; }
     QLabel#bandName { color: #dde8f1; font-size: 28px; font-weight: 700; }
     QLabel#bandRange { color: #dde8f1; font-size: 15px; }
     QLabel#bandSource { color: #91a7ba; font-size: 12px; }
@@ -101,6 +109,31 @@ def pi_model():
 SLOW_PI = "Raspberry Pi 4" in pi_model()
 
 
+def over_wifi(uri):
+    """Whether the Pi reaches a network Pluto (ip:…) over Wi-Fi: too little for its samples."""
+    if not uri.startswith("ip:"):
+        return False
+    try:
+        address = socket.gethostbyname(uri[3:])
+        route = subprocess.run(["ip", "route", "get", address], capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    found = re.search(r"\bdev (\S+)", route)
+    return bool(found) and found.group(1).startswith("wl")
+
+
+def pluto_starving():
+    """A Pluto stuck in its bootloader on USB (solid LED): it restarts for lack of power."""
+    for device in Path("/sys/bus/usb/devices").iterdir():
+        try:
+            if (device / "manufacturer").read_text().strip() == "U-Boot" and \
+                    (device / "product").read_text().strip() == "USB download gadget":
+                return True
+        except OSError:
+            pass
+    return False
+
+
 def stick_present(kind="rtl"):
     ids = PLUTO_IDS if kind == "pluto" else RTL_SDR_IDS
     for device in Path("/sys/bus/usb/devices").iterdir():
@@ -110,6 +143,63 @@ def stick_present(kind="rtl"):
         except OSError:
             pass
     return False
+
+
+RELEASES = "https://api.github.com/repos/HB9IIU/DATVision/releases/latest"
+
+
+def version_tuple(text):
+    found = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", text.strip())
+    return tuple(int(part) for part in found.groups()) if found else None
+
+
+class UpdateCheck(QObject):
+    """Asks GitHub for the latest release in the background; silent without internet."""
+    newer = pyqtSignal(str)
+
+    def __init__(self, version):
+        super().__init__()
+        self.version = version
+
+    def start(self):
+        if version_tuple(self.version):   # a development copy has no version to compare
+            threading.Thread(target=self.run, daemon=True).start()
+
+    def run(self):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(RELEASES, headers={"User-Agent": "DATVision"}),
+                                        timeout=5) as answer:
+                latest = json.load(answer).get("tag_name", "").lstrip("v")
+        except (OSError, ValueError):
+            return
+        print("UPDATE CHECK: installed %s, latest %s" % (self.version, latest or "?"), flush=True)
+        if version_tuple(latest) and version_tuple(latest) > version_tuple(self.version):
+            self.newer.emit(latest)
+
+
+class PlutoSearch(QObject):
+    """Runs pluto_find in the background: (uri, name, model, serial, address) per way to a Pluto."""
+    found = pyqtSignal(list)
+
+    def __init__(self, root):
+        super().__init__()
+        self.root = root
+
+    def start(self):
+        threading.Thread(target=self.run, daemon=True).start()
+
+    def run(self):
+        plutos = []
+        try:
+            done = subprocess.run([str(self.root / "build/linux/pluto_find")], capture_output=True, text=True, timeout=20)
+            for line in done.stdout.splitlines():
+                parts = line.split("\t")
+                if len(parts) == 6 and parts[0] == "pluto":
+                    plutos.append(tuple(parts[1:]))
+        except (OSError, subprocess.SubprocessError):
+            pass
+        print("PLUTO SEARCH: %s" % (", ".join(found[0] for found in plutos) or "none"), flush=True)
+        self.found.emit(plutos)
 
 
 class Player(QMainWindow):
@@ -129,6 +219,12 @@ class Player(QMainWindow):
         self.spectrum_source = "batc"   # QO-100 default; LOCAL scans with the stick
         self.stream_on, self.stream_to = False, udp_endpoint(DEFAULT_STREAM)   # live reception to the home network
         self.device, self.pluto_uri = "rtl", DEFAULT_PLUTO   # the receiver: RTL-SDR stick or ADALM-Pluto
+        self.pluto_name, self.pluto_serial, self.pluto_address, self.pluto_model = "", "", "", ""
+        self.pluto_resolving = False   # a search to find the saved Pluto again is running
+        self.pluto_waiting = False     # start reception once that search is done
+        self.pluto_missing_since = None   # when the chosen Pluto stopped answering
+        self.pluto_wifi = False           # the chosen Pluto is reached over Wi-Fi
+        self.pluto_searched = 0.0
         try:
             settings = json.loads(self.settings_path.read_text())
             self.volume = max(0, min(100, int(settings.get("volume", 40))))
@@ -142,6 +238,10 @@ class Player(QMainWindow):
             self.stream_on = bool(settings.get("udp_enabled", False))
             self.device = "pluto" if settings.get("device") == "pluto" else "rtl"
             self.pluto_uri = str(settings.get("pluto_uri", DEFAULT_PLUTO))
+            self.pluto_name = str(settings.get("pluto_name", ""))
+            self.pluto_serial = str(settings.get("pluto_serial", ""))
+            self.pluto_address = str(settings.get("pluto_address", ""))
+            self.pluto_model = str(settings.get("pluto_model", ""))
             try:   # no keyboard on the Pi: another destination is set in this file
                 self.stream_to = udp_endpoint(settings.get("udp_destination", DEFAULT_STREAM))
             except ValueError:
@@ -210,8 +310,15 @@ class Player(QMainWindow):
         self.about_page = AboutPage(CREDITS, LICENCE, version, root / "assets/branding/datvision-wordmark.png")
         self.pages.addWidget(self.about_page)
         self.settings.about.connect(lambda: self.pages.setCurrentWidget(self.about_page))
+        self.pluto_page = PlutoPage()
+        self.pages.addWidget(self.pluto_page)
+        self.pluto_search = PlutoSearch(root)
+        self.pluto_search.found.connect(self.plutos_found)
+        self.settings.choose_pluto.connect(self.open_pluto_page)
+        self.pluto_page.search.connect(self.search_plutos)
+        self.pluto_page.back.connect(lambda: self.pages.setCurrentWidget(self.settings))
+        self.pluto_page.chosen.connect(self.pluto_chosen)
         self.about_page.back.connect(lambda: self.pages.setCurrentWidget(self.settings))
-        self.about_page.quit.connect(self.close)
         self.pages.addWidget(self.settings)
         self.bands_page = BandsPage(bands.BANDS, "DATVision by HB9IIU · " + LICENCE + " Credits: ⚙ → ABOUT.")
         self.pages.addWidget(self.bands_page)
@@ -295,7 +402,8 @@ class Player(QMainWindow):
                                          "mpv" if isinstance(self.video, mpv_video.MpvVideo) else "libVLC",
                                          " · H.266" if self.h266 else " · no H.266 decoder"), flush=True)
         QTimer.singleShot(200, lambda: self.spectrum.set_source(self.effective_source()))
-        QTimer.singleShot(500, self.start_default)
+        self.spectrum.receiver = "PLUTO" if self.device == "pluto" else "RTL-SDR"
+        QTimer.singleShot(500, self.start_reception)
 
     @property
     def gain_db(self):
@@ -315,10 +423,62 @@ class Player(QMainWindow):
         return self.los.get(self.band.key, self.band.converter_los[0] if self.band.converter_los else 0)
 
     def effective_source(self):
-        # BATC only covers QO-100; elsewhere the stick makes the spectrum. The Pluto has no scan yet.
-        if self.band.via_lnb and self.device == "pluto":
-            return "batc"
+        # BATC only covers QO-100; elsewhere the stick or the Pluto makes the spectrum.
         return self.spectrum_source if self.band.via_lnb else "local"
+
+    # ---- choosing a Pluto: the ones found on USB and the network
+    def open_pluto_page(self):
+        self.pages.setCurrentWidget(self.pluto_page)
+        self.search_plutos()
+
+    def search_plutos(self):
+        self.pluto_page.show_searching(self.settings.pluto_uri)
+        self.pluto_search.start()
+
+    def saved_pluto(self):
+        return {"uri": self.pluto_uri, "name": self.pluto_name, "serial": self.pluto_serial,
+                "address": self.pluto_address, "model": self.pluto_model}
+
+    def plutos_found(self, found):
+        wifi = {uri for uri, *_ in found if over_wifi(uri)}
+        self.pluto_page.show_found(found, pluto_starving(), wifi)
+        if not self.pluto_resolving:
+            return
+        # Find the saved Pluto again: its address may have changed, or its name be shared.
+        self.pluto_resolving = False
+        match = plutos.choose(self.saved_pluto(), plutos.offered(found)[0])
+        if match and match["uri"] != self.pluto_uri:
+            print("PLUTO found again: %s -> %s" % (self.pluto_uri, match["uri"]), flush=True)
+            self.use_pluto(match)
+            self.save_settings()
+        if self.pluto_waiting:
+            self.pluto_waiting = False
+            self.start_default()
+
+    def start_reception(self):
+        # A saved Pluto may have a new address since last time: find it first (about 2 s).
+        if self.device == "pluto":
+            self.show_placeholder("Looking for the Pluto…")
+            self.find_pluto(then_start=True)
+        else:
+            self.start_default()
+
+    def find_pluto(self, then_start=False):
+        """Search in the background and switch to the saved Pluto's current way in."""
+        self.pluto_resolving, self.pluto_waiting = True, then_start
+        self.pluto_searched = time.monotonic()
+        self.pluto_search.start()
+
+    def use_pluto(self, pluto):
+        self.pluto_uri, self.pluto_name = pluto["uri"], pluto.get("name", "")
+        self.pluto_serial, self.pluto_address = pluto.get("serial", ""), pluto.get("address", "")
+        self.pluto_model = pluto.get("model", "")
+
+    def pluto_chosen(self, pluto):
+        print("PLUTO chosen: %s (%s, %s)" % (pluto["uri"], pluto["name"], pluto["serial"]), flush=True)
+        self.settings.set_pluto(pluto)
+        self.settings.set_device("pluto")
+        self.pages.setCurrentWidget(self.settings)   # applied with DONE, like every setting
 
     def device_present(self):
         # A Pluto on the network (ip:…) is not on USB: ask its IIO server instead.
@@ -332,7 +492,15 @@ class Player(QMainWindow):
 
     def show_missing_device(self):
         if self.device == "pluto":
-            self.show_problem(NO_PLUTO, "NO PLUTO", True)
+            # A Pluto that restarts is gone for half a minute: first say it is being looked for.
+            if self.pluto_missing_since is None:
+                self.pluto_missing_since = time.monotonic()
+            if pluto_starving():
+                self.show_problem(PLUTO_NO_POWER, "PLUTO POWER", True)
+            elif time.monotonic() - self.pluto_missing_since < 20:
+                self.show_problem(PLUTO_LOOKING, "SEARCHING", True, AMBER)
+            else:
+                self.show_problem(NO_PLUTO, "NO PLUTO", True)
         else:
             self.show_problem(NO_STICK, "NO RTL-SDR", True)
 
@@ -344,10 +512,6 @@ class Player(QMainWindow):
             self.tune(Signal(BEACON_MHZ, 1500))
 
     def start_scan(self):
-        if self.device == "pluto":
-            self.sweeper.stop()
-            self.show_problem(PLUTO_NO_SCAN, "PLUTO", False)
-            return
         if not self.device_present():
             self.show_missing_device()
             return
@@ -356,7 +520,8 @@ class Player(QMainWindow):
         self.info.reset(None)
         self.info.show_state("SCANNING", "#8cc4ff")
         self.show_placeholder("Scanning the band\n\nTap a signal to watch it")
-        self.sweep_id = self.sweeper.start((start - self.offset_mhz()) * 1e6, (end - self.offset_mhz()) * 1e6, self.gain_db)
+        self.sweep_id = self.sweeper.start((start - self.offset_mhz()) * 1e6, (end - self.offset_mhz()) * 1e6, self.gain_db,
+                                           self.device, self.pluto_uri)
 
     def on_sweep(self, sweep_id, values):
         if sweep_id == self.sweep_id and self.sweeper.running:
@@ -369,7 +534,7 @@ class Player(QMainWindow):
         if not self.device_present():
             self.show_missing_device()
         else:
-            self.show_problem("Spectrum scan stopped\n\nPress START or BEACON", "ERROR", False)
+            self.show_problem("Spectrum scan stopped\n\nChoose the band again under BANDS", "ERROR", False)
 
     def toggle_fullscreen(self):
         if self.isFullScreen():
@@ -403,23 +568,23 @@ class Player(QMainWindow):
         if signal is None:
             self.spectrum.show_message("No signal at %.3f MHz" % mhz)
         elif signal.symbol_rate_ks > 1500:
-            self.spectrum.show_message("This signal is too wide for the RTL-SDR setup")
+            self.spectrum.show_message("This signal is too wide for this receiver (1500 kS/s at most)")
         else:
             self.tune(signal)
 
     def show_placeholder(self, text, color=DIM):
         self.placeholder.setText(text)
-        self.placeholder.setStyleSheet("background: black; color: %s; font-size: %dpx; font-weight: 600;" % (color, px(30)))
+        self.placeholder.setStyleSheet("background: black; color: %s; font-size: %dpx; font-weight: normal;" % (color, px(30)))
         self.video_stack.setCurrentWidget(self.placeholder)
 
-    def show_problem(self, message, state, wait_for_stick):
+    def show_problem(self, message, state, wait_for_stick, color=RED):
         print("PROBLEM: " + message.splitlines()[0], flush=True)
         self.cancel_calibration()
         self.sweeper.stop()
         self.stop(scan=False)
         self.waiting_for_stick = wait_for_stick
         self.stick_seen = 0
-        self.info.show_state(state, RED)
+        self.info.show_state(state, color)
         self.show_placeholder(message, "#dde8f1")
 
     def tune(self, signal):
@@ -456,7 +621,7 @@ class Player(QMainWindow):
         stopped = time.monotonic()
         self.video.stop()
         timing = (stopped - stopping, time.monotonic() - stopped)
-        self.show_placeholder("Waiting for video keyframe…")
+        self.show_placeholder("Waiting for the picture…")
         self.picture_timer.start(100)
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reservation:
@@ -464,6 +629,11 @@ class Player(QMainWindow):
                 port = reservation.getsockname()[1]
             self.video.play(port, self.output_volume())
             self.session_id = self.receiver.tune(signal, self.offset_mhz(), port, self.gain_db, self.device, self.pluto_uri)
+            if self.device == "pluto":
+                self.pluto_missing_since = None
+                self.pluto_wifi = over_wifi(self.pluto_uri)
+                if self.pluto_wifi:
+                    print("PLUTO over Wi-Fi: " + self.pluto_uri, flush=True)
         except Exception as error:
             self.show_problem(str(error), "ERROR", False)
             return
@@ -544,7 +714,7 @@ class Player(QMainWindow):
         else:
             self.stop()
             if self.effective_source() == "batc":
-                self.show_placeholder("Reception ended\n\nPress START or tap a signal")
+                self.show_placeholder("Reception ended\n\nTap a signal to watch it again")
 
     def log_video(self):
         # Every 5 s while watching: what VLC decodes, shows and drops (diagnosis on slower Pis).
@@ -561,7 +731,12 @@ class Player(QMainWindow):
             if self.video.ended:
                 self.end_replay()
             return
+        if self.current and self.device == "pluto" and self.pluto_wifi:
+            self.spectrum.show_message(PLUTO_WIFI)   # renewed every tick: it stays while tuned
         if self.waiting_for_stick:
+            # A missing Pluto may be back under another address: search every 10 s.
+            if self.device == "pluto" and not self.pluto_resolving and time.monotonic() - self.pluto_searched > 10:
+                self.find_pluto()
             # Give a replugged stick two seconds to settle before opening it.
             self.stick_seen = self.stick_seen + 1 if self.device_present() else 0
             if self.stick_seen >= 2:
@@ -634,7 +809,7 @@ class Player(QMainWindow):
         if self.full_video:
             self.toggle_full_video()
         self.picture_timer.stop()
-        self.show_placeholder("Stopped\n\nPress START or tap a signal")
+        self.show_placeholder("Stopped\n\nTap a signal to watch it")
         self.spectrum.set_slot(None, "searching")
         self.info.reset(None)
         self.info.show_state("STOPPED", DIM)
@@ -729,13 +904,17 @@ class Player(QMainWindow):
 
     def open_settings(self):
         self.settings.load(self.lnb_mhz, self.gain_db, self.spectrum_source, self.band, self.lo_mhz(),
-                           self.stream_on, vlc_address(self.stream_to), self.device)
+                           self.stream_on, vlc_address(self.stream_to), self.device,
+                           self.saved_pluto())
         self.pages.setCurrentWidget(self.settings)
 
     def close_settings(self):
         self.pages.setCurrentIndex(0)
-        device_changed = self.settings.device != self.device
+        chosen = self.settings.pluto_uri or self.pluto_uri
+        device_changed = (self.settings.device, chosen) != (self.device, self.pluto_uri)
         self.device = self.settings.device
+        if self.settings.pluto_uri:
+            self.use_pluto(self.settings.pluto)
         if self.settings.network_on != self.stream_on:
             self.stream_on = self.settings.network_on
             self.receiver.stream_to = self.stream_to if self.stream_on else None   # applies at once
@@ -759,6 +938,7 @@ class Player(QMainWindow):
         self.lnb_mhz, self.gain_db = self.settings.lnb_mhz, self.settings.gain_db
         if self.band.converter_los:
             self.los[self.band.key] = lo
+        self.spectrum.receiver = "PLUTO" if self.device == "pluto" else "RTL-SDR"
         if device_changed:
             print("DEVICE: " + self.device, flush=True)
             self.save_settings()
@@ -914,7 +1094,10 @@ class Player(QMainWindow):
                                                       "indicator": self.indicator, "spectrum": self.spectrum_source,
                                                       "udp_enabled": self.stream_on,
                                                       "udp_destination": "udp://%s:%d" % self.stream_to,
-                                                      "device": self.device, "pluto_uri": self.pluto_uri}, indent=2))
+                                                      "device": self.device, "pluto_uri": self.pluto_uri,
+                                                      "pluto_name": self.pluto_name, "pluto_serial": self.pluto_serial,
+                                                      "pluto_address": self.pluto_address,
+                                                      "pluto_model": self.pluto_model}, indent=2))
         except OSError:
             pass
 
@@ -932,6 +1115,61 @@ class Player(QMainWindow):
         # ("pthread_mutex_lock: assertion failed"), and nothing needs it at exit.
         print("QUIT", flush=True)
         os._exit(0)
+
+
+def welcome_card(version, wordmark, update=""):
+    """The welcome window's picture: logo, receivers, version and an available update."""
+    logo = wordmark.scaledToWidth(px(560), Qt.SmoothTransformation)
+    card = QPixmap(px(640), logo.height() + px(120) + (px(40) if update else 0))
+    card.fill(Qt.transparent)
+    radius = px(22)
+    painter = QPainter(card)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(QPen(QColor("#1d3446"), px(2)))
+    painter.setBrush(QColor("#0c1620"))
+    painter.drawRoundedRect(QRectF(card.rect()).adjusted(1, 1, -1, -1), radius, radius)
+    painter.drawPixmap((card.width() - logo.width()) // 2, px(18), logo)
+    font = QFont("DejaVu Sans")
+    lines = [("for RTL-SDR and Pluto / FISHBall", 20, "#dde8f1", logo.height() + px(30)),
+             ("Version " + version, 16, "#9cb4c5", logo.height() + px(64))]
+    if update:
+        lines.append(("Update available: DATVision %s  ·  github.com/HB9IIU/DATVision" % update, 17, "#57f59f",
+                      logo.height() + px(104)))
+    for text, size, color, top in lines:
+        font.setPixelSize(px(size))
+        painter.setFont(font)
+        painter.setPen(QColor(color))
+        painter.drawText(QRectF(0, top, card.width(), px(size) * 1.6), Qt.AlignHCenter | Qt.AlignVCenter, text)
+    painter.end()
+    return card
+
+
+def welcome(root):
+    """The DATVision logo and version for 4 s at start; a tap closes it sooner. A window
+    of its own, so that the video appearing meanwhile cannot cover it."""
+    wordmark = QPixmap(str(root / "assets/branding/datvision-wordmark.png"))
+    if wordmark.isNull():
+        return None
+    version_file = root / "VERSION"
+    version = version_file.read_text().strip() if version_file.exists() else "development"
+    card = welcome_card(version, wordmark)
+    # Without a frame or title bar: the desktop's window manager is told to leave it alone.
+    splash = QSplashScreen(card, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.X11BypassWindowManagerHint)
+    screen = QApplication.primaryScreen().geometry()
+    splash.move(screen.center() - splash.rect().center())
+    # Rounded corners: only the card itself belongs to the window.
+    splash.setMask(card.mask())
+    splash.show()
+    QTimer.singleShot(4000, splash.close)
+
+    def show_update(latest):   # the same window, one line longer
+        if splash.isVisible():
+            card = welcome_card(version, wordmark, latest)
+            splash.setPixmap(card)
+            splash.setMask(card.mask())
+            splash.move(screen.center() - splash.rect().center())
+    splash.show_update = show_update
+    return splash
 
 
 def main():
@@ -959,9 +1197,21 @@ def main():
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            QMessageBox.information(None, "RTL DATV", "The Pi player is already running.")
+            QMessageBox.information(None, "DATVision", "DATVision is already running.")
             return 1
     player = Player(root, preview, window)
+    splash = None if preview else welcome(root)   # kept referenced until it closes
+    version_file = root / "VERSION"
+    check = UpdateCheck(version_file.read_text().strip() if version_file.exists() else "development")
+
+    def update_available(latest):
+        print("UPDATE available: " + latest, flush=True)
+        player.about_page.show_update(latest)
+        if splash is not None:
+            splash.show_update(latest)
+    check.newer.connect(update_available)
+    if not preview:
+        check.start()
     # Stopped from outside (an update, a shutdown): close like QUIT, which stops the receiver.
     signal.signal(signal.SIGTERM, lambda *args: player.close())
     signal.signal(signal.SIGINT, lambda *args: player.close())

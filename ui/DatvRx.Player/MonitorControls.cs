@@ -52,6 +52,8 @@ public sealed class MonitorSpectrum : Control
     public string Message { get; set; } = "Connect an RTL-SDR · press Start to scan";
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public string SourceLabel { get; set; } = "LOCAL";
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public string Receiver { get; set; } = "RTL-SDR";   // which radio the data comes from
     public event Action<double> FrequencyClicked;
     public MonitorSpectrum() { DoubleBuffered = true; Cursor = Cursors.Cross; SetStyle(ControlStyles.ResizeRedraw, true); }
     protected override void OnMouseDown(MouseEventArgs e)
@@ -118,7 +120,7 @@ public sealed class MonitorSpectrum : Control
             string stageLabel = Stage == CarrierStage.WaitingVideo ? "WAITING FOR VIDEO" : Stage.ToString().ToUpperInvariant();
             g.DrawString(stageLabel, Font, stageText, Math.Max(0, (Width - g.MeasureString(stageLabel, Font).Width) / 2), 0);
         }
-        string source = Band.Name + " · " + SourceLabel;
+        string source = Band.Name + " · " + SourceLabel + (SourceLabel == "REPLAY" ? "" : " · " + Receiver);
         g.DrawString(source, Font, text, Math.Max(4, Width - g.MeasureString(source, Font).Width - 5), 0);
         if (!string.IsNullOrWhiteSpace(Message))
         {
@@ -290,6 +292,9 @@ internal sealed class MonitorButton : Button
     private bool _hovered, _pressed;
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool RecordingActive { get; set; }
+    // The chosen one of a pair (LOCAL / BATC, RTL-SDR / PLUTO, OFF / ON): drawn green.
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool Selected { get; set { field = value; Invalidate(); } }
 
     public MonitorButton()
     {
@@ -309,8 +314,8 @@ internal sealed class MonitorButton : Button
         var g = e.Graphics;
         bool down = _pressed && Enabled;
         var face = new Rectangle(1, 1, Width - 3, Height - 3);
-        Color top = down ? Color.FromArgb(19, 37, 50) : _hovered && Enabled ? Color.FromArgb(55, 88, 109) : Color.FromArgb(40, 66, 84);
-        Color bottom = down ? Color.FromArgb(30, 51, 67) : Color.FromArgb(20, 39, 53);
+        Color top = down ? Color.FromArgb(19, 37, 50) : Selected ? Color.FromArgb(38, 112, 84) : _hovered && Enabled ? Color.FromArgb(55, 88, 109) : Color.FromArgb(40, 66, 84);
+        Color bottom = down ? Color.FromArgb(30, 51, 67) : Selected ? Color.FromArgb(24, 74, 56) : Color.FromArgb(20, 39, 53);
         g.Clear(Parent?.BackColor ?? MonitorColors.Background);
         g.SmoothingMode = SmoothingMode.AntiAlias;
         float radius = Math.Min(8f * DeviceDpi / 96f, Math.Min(face.Width, face.Height) / 2f);
@@ -323,7 +328,7 @@ internal sealed class MonitorButton : Button
         outline.CloseFigure();
         using var fill = new LinearGradientBrush(face, top, bottom, 90f);
         g.FillPath(fill, outline);
-        using var rim = new Pen(down ? Color.FromArgb(35, 60, 77) : Color.FromArgb(83, 118, 140));
+        using var rim = new Pen(down ? Color.FromArgb(35, 60, 77) : Selected ? Color.FromArgb(80, 215, 160) : Color.FromArgb(83, 118, 140));
         g.DrawPath(rim, outline);
         var label = ClientRectangle; if (down) label.Offset(1, 1);
         var textColor = Enabled ? ForeColor : MonitorColors.Dim;

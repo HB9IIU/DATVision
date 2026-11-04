@@ -72,6 +72,15 @@ def main():
         source = root / 'build/windows' / name
         shutil.copy2(source, binaries / name)
         seeds.append(source)
+    # The Pluto tools, when built (MSYS2's libiio installed); libiio.dll and its
+    # libraries come with them through the dependency walk below.
+    for name in ('pluto_iq.exe', 'pluto_sweep.exe', 'pluto_find.exe'):
+        source = root / 'build/windows' / name
+        if source.exists():
+            shutil.copy2(source, binaries / name)
+            seeds.append(source)
+        else:
+            print('Without', name, '(install mingw-w64-ucrt-x86_64-libiio and rebuild for Pluto support)')
 
     def imports(path):
         result = subprocess.check_output([str(tools / 'objdump.exe'), '-p', str(path)], text=True)
