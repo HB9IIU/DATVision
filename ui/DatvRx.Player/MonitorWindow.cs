@@ -628,19 +628,46 @@ public sealed class MonitorWindow : Form
     }
     private void ShowCredits(Form owner)
     {
-        using var dialog = Dialog("DATVision · Credits", 620, 570);
+        // The Pi's About page: logo, version, receivers, credits as a table, licence.
+        string[][] credits =
+        [
+            ["DVB-S/S2 decoder", "based on OnAir by Kristijonas Adomaitis (adswill)"],
+            ["LDPC decoder", "optimizations by Evariste Courjaud (F5OEO)"],
+            ["DVB-S/S2 contributions", "Arclamp"],
+            ["BATC spectrum, signal finder", "HB9IIU Experimental H.266 Player, also its audio session code"],
+            ["Magic eye", "after HB9IIU SDR-Tiouner, inspired by the Lynx DATV Receiver (G8YTZ)"],
+            ["Pluto support", "libiio by Analog Devices; tested with the Tezuka firmware by F5OEO"],
+            ["Video, interface", "ffplay (FFmpeg), .NET Windows Forms"],
+        ];
+        using var dialog = Dialog("DATVision · About", 780, 560);
         using var artwork = BrandAssets.LoadWordmark();
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(18) };
+        string version = Application.ProductVersion.Split('+')[0];
+        Label Line(string text, float size, Color color, ContentAlignment align = ContentAlignment.MiddleCenter) => new()
+        {
+            Text = text, Dock = DockStyle.Fill, AutoSize = false, ForeColor = color, BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", size), TextAlign = align, Margin = Padding.Empty
+        };
+        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = credits.Length, Margin = new Padding(0, 6, 0, 6) };
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34)); table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 66));
+        for (int row = 0; row < credits.Length; row++)
+        {
+            table.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / credits.Length));
+            table.Controls.Add(Line(credits[row][0] + "   ", 9.5f, MonitorColors.Dim, ContentAlignment.MiddleRight), 0, row);
+            table.Controls.Add(Line(credits[row][1], 10.5f, MonitorColors.Text, ContentAlignment.MiddleLeft), 1, row);
+        }
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(18, 10, 18, 14), BackColor = MonitorColors.Background };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 132));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+        foreach (float height in new float[] { 118, 26, 26, 0, 24, 44 })
+            layout.RowStyles.Add(height == 0 ? new RowStyle(SizeType.Percent, 100) : new RowStyle(SizeType.Absolute, height));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         var logo = new PictureBox { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, Image = artwork, Margin = Padding.Empty };
-        var text = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, BorderStyle = BorderStyle.None,
-            ScrollBars = ScrollBars.Vertical, BackColor = MonitorColors.Background, ForeColor = MonitorColors.Text,
-            Font = new Font("Segoe UI", 10), Text = "DATVision by HB9IIU\n\nNative Windows app; receiver and SDR run on this PC.\nDVB-S/S2 decoder based on OnAir by Kristijonas Adomaitis (adswill).\nLDPC decoder optimizations by Evariste Courjaud (F5OEO).\nAdditional DVB-S/S2 contributions by Arclamp.\nLayout and local scanner adapted from HB9IIU's Pi player.\nBATC spectrum / original finder and audio session code from HB9IIU Experimental H.266 Player.\nMagic eye inspired by Lynx DATV Receiver (G8YTZ).\n\nGPL v3; see LICENSE and the bundled third-party license notices.".Replace("\n", Environment.NewLine) };
         var close = Button("Close"); close.DialogResult = DialogResult.OK; dialog.CancelButton = close;
-        layout.Controls.Add(logo, 0, 0); layout.Controls.Add(text, 0, 1); layout.Controls.Add(close, 0, 2);
+        layout.Controls.Add(logo, 0, 0);
+        layout.Controls.Add(Line("Version " + version, 11, Color.FromArgb(87, 245, 159)), 0, 1);
+        layout.Controls.Add(Line("Receivers: RTL-SDR (R820T, Blog V4)  ·  ADALM-Pluto and clones (PlutoSky / FISHBall)", 9.5f, MonitorColors.Dim), 0, 2);
+        layout.Controls.Add(table, 0, 3);
+        layout.Controls.Add(Line("GPL v3 · see LICENSE and the bundled third-party license notices.", 9, MonitorColors.Dim), 0, 4);
+        layout.Controls.Add(close, 0, 5);
         dialog.Controls.Add(layout); ShowMonitorDialog(dialog, owner: owner);
     }
 
