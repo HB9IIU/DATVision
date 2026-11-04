@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.request
 
 from PyQt5.QtCore import Qt, QTimer, QEvent, QObject, QRectF, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QKeySequence, QPainter, QPen, QPixmap
@@ -142,6 +143,38 @@ def stick_present(kind="rtl"):
         except OSError:
             pass
     return False
+
+
+RELEASES = "https://api.github.com/repos/HB9IIU/DATVision/releases/latest"
+
+
+def version_tuple(text):
+    found = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", text.strip())
+    return tuple(int(part) for part in found.groups()) if found else None
+
+
+class UpdateCheck(QObject):
+    """Asks GitHub for the latest release in the background; silent without internet."""
+    newer = pyqtSignal(str)
+
+    def __init__(self, version):
+        super().__init__()
+        self.version = version
+
+    def start(self):
+        if version_tuple(self.version):   # a development copy has no version to compare
+            threading.Thread(target=self.run, daemon=True).start()
+
+    def run(self):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(RELEASES, headers={"User-Agent": "DATVision"}),
+                                        timeout=5) as answer:
+                latest = json.load(answer).get("tag_name", "").lstrip("v")
+        except (OSError, ValueError):
+            return
+        print("UPDATE CHECK: installed %s, latest %s" % (self.version, latest or "?"), flush=True)
+        if version_tuple(latest) and version_tuple(latest) > version_tuple(self.version):
+            self.newer.emit(latest)
 
 
 class PlutoSearch(QObject):
@@ -1082,16 +1115,10 @@ class Player(QMainWindow):
         os._exit(0)
 
 
-def welcome(root):
-    """The DATVision logo and version for 4 s at start; a tap closes it sooner. A window
-    of its own, so that the video appearing meanwhile cannot cover it."""
-    wordmark = QPixmap(str(root / "assets/branding/datvision-wordmark.png"))
-    if wordmark.isNull():
-        return None
-    version_file = root / "VERSION"
-    version = version_file.read_text().strip() if version_file.exists() else "development"
+def welcome_card(version, wordmark, update=""):
+    """The welcome window's picture: logo, receivers, version and an available update."""
     logo = wordmark.scaledToWidth(px(560), Qt.SmoothTransformation)
-    card = QPixmap(px(640), logo.height() + px(120))
+    card = QPixmap(px(640), logo.height() + px(120) + (px(40) if update else 0))
     card.fill(Qt.transparent)
     radius = px(22)
     painter = QPainter(card)
@@ -1101,15 +1128,29 @@ def welcome(root):
     painter.drawRoundedRect(QRectF(card.rect()).adjusted(1, 1, -1, -1), radius, radius)
     painter.drawPixmap((card.width() - logo.width()) // 2, px(18), logo)
     font = QFont("DejaVu Sans")
-    font.setPixelSize(px(20))
-    painter.setFont(font)
-    painter.setPen(QColor("#dde8f1"))
-    painter.drawText(card.rect().adjusted(0, 0, 0, -px(56)), Qt.AlignHCenter | Qt.AlignBottom, "for RTL-SDR and Pluto / FISHBall")
-    font.setPixelSize(px(16))
-    painter.setFont(font)
-    painter.setPen(QColor("#9cb4c5"))
-    painter.drawText(card.rect().adjusted(0, 0, 0, -px(24)), Qt.AlignHCenter | Qt.AlignBottom, "Version " + version)
+    lines = [("for RTL-SDR and Pluto / FISHBall", 20, "#dde8f1", logo.height() + px(30)),
+             ("Version " + version, 16, "#9cb4c5", logo.height() + px(64))]
+    if update:
+        lines.append(("Update available: DATVision %s  ·  github.com/HB9IIU/DATVision" % update, 17, "#57f59f",
+                      logo.height() + px(104)))
+    for text, size, color, top in lines:
+        font.setPixelSize(px(size))
+        painter.setFont(font)
+        painter.setPen(QColor(color))
+        painter.drawText(QRectF(0, top, card.width(), px(size) * 1.6), Qt.AlignHCenter | Qt.AlignVCenter, text)
     painter.end()
+    return card
+
+
+def welcome(root):
+    """The DATVision logo and version for 4 s at start; a tap closes it sooner. A window
+    of its own, so that the video appearing meanwhile cannot cover it."""
+    wordmark = QPixmap(str(root / "assets/branding/datvision-wordmark.png"))
+    if wordmark.isNull():
+        return None
+    version_file = root / "VERSION"
+    version = version_file.read_text().strip() if version_file.exists() else "development"
+    card = welcome_card(version, wordmark)
     # Without a frame or title bar: the desktop's window manager is told to leave it alone.
     splash = QSplashScreen(card, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.X11BypassWindowManagerHint)
     screen = QApplication.primaryScreen().geometry()
@@ -1118,6 +1159,14 @@ def welcome(root):
     splash.setMask(card.mask())
     splash.show()
     QTimer.singleShot(4000, splash.close)
+
+    def show_update(latest):   # the same window, one line longer
+        if splash.isVisible():
+            card = welcome_card(version, wordmark, latest)
+            splash.setPixmap(card)
+            splash.setMask(card.mask())
+            splash.move(screen.center() - splash.rect().center())
+    splash.show_update = show_update
     return splash
 
 
@@ -1150,6 +1199,17 @@ def main():
             return 1
     player = Player(root, preview, window)
     splash = None if preview else welcome(root)   # kept referenced until it closes
+    version_file = root / "VERSION"
+    check = UpdateCheck(version_file.read_text().strip() if version_file.exists() else "development")
+
+    def update_available(latest):
+        print("UPDATE available: " + latest, flush=True)
+        player.about_page.show_update(latest)
+        if splash is not None:
+            splash.show_update(latest)
+    check.newer.connect(update_available)
+    if not preview:
+        check.start()
     # Stopped from outside (an update, a shutdown): close like QUIT, which stops the receiver.
     signal.signal(signal.SIGTERM, lambda *args: player.close())
     signal.signal(signal.SIGINT, lambda *args: player.close())

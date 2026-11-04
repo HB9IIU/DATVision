@@ -780,6 +780,9 @@ class AboutPage(QWidget):
         receivers = QLabel("Receivers: RTL-SDR (R820T, Blog V4)  ·  ADALM-Pluto and clones (PlutoSky / FISHBall)",
                            objectName="role")
         layout.addWidget(receivers, 0, Qt.AlignHCenter)
+        self.update_note = QLabel(objectName="version")
+        layout.addWidget(self.update_note, 0, Qt.AlignHCenter)
+        self.update_note.hide()
         self.show_h266(False)
         layout.addSpacing(px(6))
         grid = QGridLayout()
@@ -795,6 +798,10 @@ class AboutPage(QWidget):
         layout.addLayout(holder)
         layout.addStretch()
         layout.addWidget(QLabel(licence, objectName="licence"), 0, Qt.AlignHCenter)
+
+    def show_update(self, latest):
+        self.update_note.setText("Update available: DATVision %s  ·  github.com/HB9IIU/DATVision" % latest)
+        self.update_note.show()
 
     def show_h266(self, available):
         color = "#57f59f" if available else "#7f93a3"
