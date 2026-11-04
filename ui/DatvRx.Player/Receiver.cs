@@ -317,7 +317,7 @@ public sealed class LocalReceiver : IReceiverBackend
             try
             {
                 session.Player = Start(Path.Combine(_msysBin, "ffplay.exe"),
-                    ["-hide_banner", "-loglevel", "info", "-nostats", "-autoexit", "-loop", "0", "-volume", "100", "-window_title", "RTL DATV Video", "-i", Path.GetFullPath(path)]);
+                    ["-hide_banner", "-loglevel", "info", "-nostats", "-autoexit", "-volume", "100", "-window_title", "RTL DATV Video", "-i", Path.GetFullPath(path)]);
                 session.Tasks.Add(ReadLog(session, session.Player, "video", line => { if (_session == session) VideoInfo?.Invoke(line.Trim()); }));
                 session.Tasks.Add(Monitor(session));
                 var parser = new TransportInfo();

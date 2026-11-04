@@ -159,12 +159,14 @@ public sealed class MonitorWindow : Form
         };
         _bands.Click += async (_, _) => await ChooseBandAsync(); _settings.Click += async (_, _) => await ConfigureAsync();
         _quit.Click += (_, _) => Close(); _video.DoubleClick += (_, _) => TogglePlayerWindow(); _placeholder.DoubleClick += (_, _) => TogglePlayerWindow();
+        _video.Click += async (_, _) => await EndReplayAsync(); _placeholder.Click += async (_, _) => await EndReplayAsync();   // only during a replay
         _video.Resize += (_, _) => FitVideo();
         _tips.SetToolTip(_video, "Double-click to open a resizable video window");
         _tips.SetToolTip(_placeholder, "Double-click to open a resizable video window");
         _timer.Tick += async (_, _) =>
         {
             UpdateRecordButton();
+            if (_recording && !_busy && _receiver.PlayerProcess is { HasExited: true }) await EndReplayAsync();
             if (!_busy && Enabled) EmbedVideo();
             if (_current != null && !_busy && !_signalLost && ReceivingNow && _embedded != IntPtr.Zero && !_placeholder.Visible
                 && _report is { Locked: true } && DateTime.UtcNow - _lastReport <= TimeSpan.FromSeconds(5)
@@ -336,9 +338,19 @@ public sealed class MonitorWindow : Form
             _spectrum.Frame = null; _spectrum.Tuned = null; _spectrum.Message = "Recorded video · RF scanner stopped";
             _spectrum.SourceLabel = "REPLAY"; _spectrum.Invalidate(); Placeholder("Opening recorded reception…");
             await _receiver.PlayRecordingAsync(path);
+            // As on the Pi: full screen; a click on the picture or the end of the file ends it.
+            if (_playerWindow == null) TogglePlayerWindow();
+            _playerWindow.FormBorderStyle = FormBorderStyle.None; _playerWindow.WindowState = FormWindowState.Maximized; _playerWindow.TopMost = true;
         }
         catch (Exception ex) { State("REPLAY ERROR", MonitorColors.Red); Placeholder(ex.Message); }
         finally { _busy = false; }
+    }
+    private async Task EndReplayAsync()
+    {
+        if (!_recording || _busy) return;
+        _playerWindow?.Close();
+        await StopAsync();
+        if (_saved.Source == "Local") await StartScanningAsync(); else await TuneBeaconAsync();   // back to reception
     }
     private void OnStatus(string line)
     {
@@ -361,6 +373,11 @@ public sealed class MonitorWindow : Form
                 if (!_busy && report.Locked && _spectrum.Stage == CarrierStage.Selected)
                 { _spectrum.Stage = CarrierStage.WaitingVideo; _spectrum.Invalidate(); }
             }
+        }
+        if (_recording && (line.StartsWith("Receiver pipeline stopped") || line.StartsWith("Reception stopped")))
+        {
+            _ = EndReplayAsync();   // the recording reached its end
+            return;
         }
         if (line.StartsWith("Radio:") || line.StartsWith("Receiver pipeline stopped") || line.StartsWith("Reception stopped"))
         {
