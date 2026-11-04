@@ -15,9 +15,7 @@ internal sealed class VideoClicks : IDisposable
     private readonly HookProc _proc;   // kept referenced: the hook calls it from native code
     private readonly string _logPath;
     private IntPtr _hook;
-    private long _lastTick;
-    private Point _lastPoint;
-    public event Action<bool> Clicked;   // true for the second click of a double click
+    public event Action Clicked;
 
     public VideoClicks(Control video, string logPath)
     {
@@ -47,13 +45,7 @@ internal sealed class VideoClicks : IDisposable
         var window = WindowFromPhysicalPoint(point);
         bool inVideo = _video.Visible && (window == _video.Handle || IsChild(_video.Handle, window));
         Log($"click at {point.X},{point.Y} (physical) · on the video {inVideo}");
-        if (!inVideo) return;
-        long now = Environment.TickCount64;
-        var size = SystemInformation.DoubleClickSize;
-        bool second = now - _lastTick <= SystemInformation.DoubleClickTime &&
-            Math.Abs(point.X - _lastPoint.X) <= size.Width * 2 && Math.Abs(point.Y - _lastPoint.Y) <= size.Height * 2;
-        _lastTick = second ? 0 : now; _lastPoint = point;
-        Clicked?.Invoke(second);
+        if (inVideo) Clicked?.Invoke();
     }
 
     public void Dispose()

@@ -46,7 +46,7 @@ public sealed class MonitorWindow : Form
     private readonly Control _sidebar, _controls;
     private readonly TableLayoutPanel _body, _layout;
     private readonly VideoClicks _clicks;
-    private Form _playerWindow;
+    private bool _fullVideo;   // the video alone in the window, as on the Pi
 
     public MonitorWindow(string root, string recording = null)
     {
@@ -162,7 +162,7 @@ public sealed class MonitorWindow : Form
         _quit.Click += (_, _) => Close(); // Clicks on the picture come through VideoClicks (ffplay's window would swallow them):
         // a click ends a replay, a double click opens the separate video window.
         _clicks = new VideoClicks(_video, Path.Combine(root, "test-output", "player-clicks.log"));
-        _clicks.Clicked += async second => { if (_recording) await EndReplayAsync(); else if (second) TogglePlayerWindow(); };
+        _clicks.Clicked += async _ => { if (_recording) await EndReplayAsync(); else SetFullVideo(!_fullVideo); };
         _video.Resize += (_, _) => FitVideo();
         _tips.SetToolTip(_video, "Double-click to open a resizable video window");
         _tips.SetToolTip(_placeholder, "Double-click to open a resizable video window");
@@ -209,7 +209,7 @@ public sealed class MonitorWindow : Form
         FormClosing += async (_, e) =>
         {
             if (_closed) return; e.Cancel = true; if (_closing) return;
-            _closing = true; _playerWindow?.Close(); _timer.Stop(); _batc.Dispose(); _clicks.Dispose(); SaveSettings();
+            _closing = true; _timer.Stop(); _batc.Dispose(); _clicks.Dispose(); SaveSettings();
             await _sweep.StopAsync(); await _receiver.DisposeAsync(); _closed = true; Close();
         };
         Shown += async (_, _) =>
@@ -314,6 +314,7 @@ public sealed class MonitorWindow : Form
     // The video alone in the window (a replay): no information, controls or spectrum.
     private void SetFullVideo(bool full)
     {
+        _fullVideo = full;
         _sidebar.Visible = _controls.Visible = _spectrum.Visible = !full;
         _body.ColumnStyles[0].Width = full ? 0 : 15; _body.ColumnStyles[1].Width = full ? 100 : 71; _body.ColumnStyles[2].Width = full ? 0 : 14;
         _layout.RowStyles[1].Height = full ? 0 : 132;
@@ -351,7 +352,6 @@ public sealed class MonitorWindow : Form
             _spectrum.SourceLabel = "REPLAY"; _spectrum.Invalidate(); Placeholder("Opening recorded reception…");
             await _receiver.PlayRecordingAsync(path);
             // As on the Pi: the video fills the window; a click on it or the end of the file ends it.
-            _playerWindow?.Close();
             SetFullVideo(true);
         }
         catch (Exception ex) { State("REPLAY ERROR", MonitorColors.Red); Placeholder(ex.Message); }
@@ -589,7 +589,6 @@ public sealed class MonitorWindow : Form
             if (pluto && chosen == null) { MessageBox.Show(dialog, "Choose a Pluto, or the RTL-SDR stick.", "Receiver"); return; }
             _saved.Source = batc && _band.Key == "qo100" ? "BATC" : "Local";
             _saved.EffectiveLoMhz = (double)lo.Value; _saved.Gain = gains[gain.Value]; _saved.TopMost = TopMost = top.Checked;
-            if (_playerWindow != null) _playerWindow.TopMost = TopMost;
             _saved.UdpEnabled = udpEnabled; _saved.UdpDestination = udpDestination;
             _receiver.UdpDestination = udpEnabled ? udpDestination : null;
             _saved.Device = pluto ? "Pluto" : "RTL";
@@ -705,11 +704,7 @@ public sealed class MonitorWindow : Form
     }
     private DialogResult ShowMonitorDialog(Form dialog, bool closeOnEscape = true, Form owner = null)
     {
-        // A topmost video sibling must not cover a modal dialog and leave
-        // the disabled monitor looking frozen. Restore it after the dialog closes.
-        var playerWindow = _playerWindow;
-        bool restorePlayer = playerWindow is { Visible: true };
-        dialog.TopMost = (owner?.TopMost ?? TopMost) || playerWindow is { TopMost: true };
+        dialog.TopMost = owner?.TopMost ?? TopMost;
         dialog.ShowInTaskbar = false;
         dialog.Shown += (_, _) => dialog.Activate();
         dialog.KeyPreview = true;
@@ -717,11 +712,9 @@ public sealed class MonitorWindow : Form
         {
             if (closeOnEscape && e.KeyCode == Keys.Escape) { dialog.DialogResult = DialogResult.Cancel; dialog.Close(); }
         };
-        if (restorePlayer) playerWindow.Hide();
         try { return dialog.ShowDialog(owner ?? this); }
         finally
         {
-            if (restorePlayer && !_closing && !playerWindow.IsDisposed) playerWindow.Show();
             if (!_closing && !(owner?.IsDisposed ?? false)) (owner ?? this).Activate();
         }
     }
@@ -731,39 +724,6 @@ public sealed class MonitorWindow : Form
     private void State(string text, Color color) { _state.Text = text; _state.ForeColor = color; }
     private void Placeholder(string text) { _placeholder.Text = text; _placeholder.Visible = true; _placeholder.BringToFront(); if (_embedded != IntPtr.Zero) ShowWindow(_embedded, 0); }
     private void ShowMessage(string text) { _spectrum.Message = text; _spectrum.Invalidate(); }
-    private void TogglePlayerWindow()
-    {
-        if (_playerWindow != null) { _playerWindow.Close(); return; }
-        var playerWindow = new Form
-        {
-            Text = "DATVision · Video", Icon = BrandAssets.Icon, BackColor = Color.Black,
-            ClientSize = new Size(960, 540), MinimumSize = new Size(320, 220),
-            StartPosition = FormStartPosition.CenterScreen, TopMost = TopMost
-        };
-        _playerWindow = playerWindow;
-        // Move the existing host, including ffplay and its waiting overlay.
-        // The decoder and audio keep running throughout.
-        _body.Controls.Remove(_video);
-        playerWindow.Controls.Add(_video);
-        var returnVideo = new Label
-        {
-            Dock = DockStyle.Fill, BackColor = Color.Black, ForeColor = MonitorColors.Dim,
-            Text = "Video open in separate window\n\nDouble-click to bring it back",
-            TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand
-        };
-        returnVideo.DoubleClick += (_, _) => playerWindow.Close();
-        _body.Controls.Add(returnVideo, 1, 0);
-        playerWindow.KeyPreview = true;
-        playerWindow.KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) playerWindow.Close(); };
-        playerWindow.FormClosing += (_, _) =>
-        {
-            // Reparent before disposal so closing the pop-out cannot destroy ffplay.
-            playerWindow.Controls.Remove(_video);
-            _body.Controls.Remove(returnVideo); returnVideo.Dispose();
-            _body.Controls.Add(_video, 1, 0); _playerWindow = null; FitVideo();
-        };
-        playerWindow.Show(this); FitVideo();
-    }
     private void EmbedVideo()
     {
         try
