@@ -25,7 +25,7 @@ from ui_scale import px
 from signal_finder import BEACON_MHZ, Signal
 from sweeper import Sweeper
 from spectrum import Spectrum
-from receiver import Receiver, DEFAULT_PLUTO, DEFAULT_STREAM, udp_endpoint, vlc_address
+from receiver import Receiver, DEFAULT_STREAM, udp_endpoint, vlc_address
 from video import Video
 import shutil
 from ts_info import TsInfo, callsign
@@ -35,11 +35,8 @@ from panels import GREEN, AMBER, RED, DIM, GAINS, REQUIRED_ESN0, InfoPanel, Cont
 REPORT = re.compile(r"(DVB-S2X|DVB-S2|DVB-S) (\S+) (\d+/\d+)\S*(?: short)?(?: pilots)?\s+[\d.]+ Msym/s"
                     r"\s+Es/N0 ([\d.-]+) dB\s+ok \d+\s+bad (\d+)")
 RTL_SDR_IDS = {("0bda", "2838"), ("0bda", "2832")}
-PLUTO_IDS = {("0456", "b673")}   # ADALM-Pluto and clones such as the PlutoSky
 NO_STICK = "RTL-SDR stick not found\n\nUnplug it and plug it back in.\nReception resumes by itself."
-NO_PLUTO = "Pluto not found\n\nCheck its power supply and its USB or network cable.\nReception resumes by itself."
 STICK_BUSY = "RTL-SDR stick is busy\n\nUnplug it and plug it back in.\nIf that does not help, restart the Pi."
-PLUTO_NO_SCAN = "The local scan needs the RTL-SDR stick\n\nWith the Pluto, QO-100 with the BATC spectrum\nworks; other bands follow."
 SIGNAL_LOST_NOTICE_S = 3   # replace the frozen picture with a clear message
 SIGNAL_LOST_GIVE_UP_S = 30  # LOCAL: stop waiting for the station and scan the band again
 CREDITS = (("DVB-S/S2 decoder", "based on OnAir by Kristijonas Adomaitis (adswill)"),
@@ -101,11 +98,10 @@ def pi_model():
 SLOW_PI = "Raspberry Pi 4" in pi_model()
 
 
-def stick_present(kind="rtl"):
-    ids = PLUTO_IDS if kind == "pluto" else RTL_SDR_IDS
+def stick_present():
     for device in Path("/sys/bus/usb/devices").iterdir():
         try:
-            if ((device / "idVendor").read_text().strip(), (device / "idProduct").read_text().strip()) in ids:
+            if ((device / "idVendor").read_text().strip(), (device / "idProduct").read_text().strip()) in RTL_SDR_IDS:
                 return True
         except OSError:
             pass
@@ -128,7 +124,6 @@ class Player(QMainWindow):
         self.indicator = "eye"
         self.spectrum_source = "batc"   # QO-100 default; LOCAL scans with the stick
         self.stream_on, self.stream_to = False, udp_endpoint(DEFAULT_STREAM)   # live reception to the home network
-        self.device, self.pluto_uri = "rtl", DEFAULT_PLUTO   # the receiver: RTL-SDR stick or ADALM-Pluto
         try:
             settings = json.loads(self.settings_path.read_text())
             self.volume = max(0, min(100, int(settings.get("volume", 40))))
@@ -140,8 +135,6 @@ class Player(QMainWindow):
                 self.gains["qo100"] = max(0, min(49.6, float(settings["gain_db"])))
             self.band = bands.BY_KEY.get(settings.get("band"), self.band)
             self.stream_on = bool(settings.get("udp_enabled", False))
-            self.device = "pluto" if settings.get("device") == "pluto" else "rtl"
-            self.pluto_uri = str(settings.get("pluto_uri", DEFAULT_PLUTO))
             try:   # no keyboard on the Pi: another destination is set in this file
                 self.stream_to = udp_endpoint(settings.get("udp_destination", DEFAULT_STREAM))
             except ValueError:
@@ -315,26 +308,8 @@ class Player(QMainWindow):
         return self.los.get(self.band.key, self.band.converter_los[0] if self.band.converter_los else 0)
 
     def effective_source(self):
-        # BATC only covers QO-100; elsewhere the stick makes the spectrum. The Pluto has no scan yet.
-        if self.band.via_lnb and self.device == "pluto":
-            return "batc"
+        # BATC only covers QO-100; elsewhere the stick makes the spectrum.
         return self.spectrum_source if self.band.via_lnb else "local"
-
-    def device_present(self):
-        # A Pluto on the network (ip:…) is not on USB: ask its IIO server instead.
-        if self.device == "pluto" and self.pluto_uri.startswith("ip:"):
-            try:
-                with socket.create_connection((self.pluto_uri[3:], 30431), timeout=0.3):
-                    return True
-            except OSError:
-                return False
-        return stick_present(self.device)
-
-    def show_missing_device(self):
-        if self.device == "pluto":
-            self.show_problem(NO_PLUTO, "NO PLUTO", True)
-        else:
-            self.show_problem(NO_STICK, "NO RTL-SDR", True)
 
     def start_default(self):
         # BATC: straight to the beacon, as before. LOCAL: scan until a signal is tapped.
@@ -344,12 +319,8 @@ class Player(QMainWindow):
             self.tune(Signal(BEACON_MHZ, 1500))
 
     def start_scan(self):
-        if self.device == "pluto":
-            self.sweeper.stop()
-            self.show_problem(PLUTO_NO_SCAN, "PLUTO", False)
-            return
-        if not self.device_present():
-            self.show_missing_device()
+        if not stick_present():
+            self.show_problem(NO_STICK, "NO RTL-SDR", True)
             return
         start, end = self.zoom or (self.band.start_mhz, self.band.end_mhz)
         print("SCAN: %s %.3f-%.3f MHz" % (self.band.name, start, end), flush=True)
@@ -366,8 +337,8 @@ class Player(QMainWindow):
         if sweep_id != self.sweep_id:
             return
         self.sweeper.stop()
-        if not self.device_present():
-            self.show_missing_device()
+        if not stick_present():
+            self.show_problem(NO_STICK, "NO RTL-SDR", True)
         else:
             self.show_problem("Spectrum scan stopped\n\nPress START or BEACON", "ERROR", False)
 
@@ -427,8 +398,8 @@ class Player(QMainWindow):
         self.tuned_at = time.monotonic()
         self.leave_replay()
         self.last_signal = signal
-        if not self.device_present():
-            self.show_missing_device()
+        if not stick_present():
+            self.show_problem(NO_STICK, "NO RTL-SDR", True)
             return
         # Answer the tap on screen first, then swap the receiver.
         self.session_id = -1
@@ -463,7 +434,7 @@ class Player(QMainWindow):
                 reservation.bind(("127.0.0.1", 0))
                 port = reservation.getsockname()[1]
             self.video.play(port, self.output_volume())
-            self.session_id = self.receiver.tune(signal, self.offset_mhz(), port, self.gain_db, self.device, self.pluto_uri)
+            self.session_id = self.receiver.tune(signal, self.offset_mhz(), port, self.gain_db)
         except Exception as error:
             self.show_problem(str(error), "ERROR", False)
             return
@@ -537,8 +508,8 @@ class Player(QMainWindow):
     def on_failure(self, session_id, message):
         if session_id != self.session_id:
             return
-        if not self.device_present():
-            self.show_missing_device()
+        if not stick_present():
+            self.show_problem(NO_STICK, "NO RTL-SDR", True)
         elif self.stick_busy:
             self.show_problem(STICK_BUSY, "STICK BUSY", False)
         else:
@@ -563,15 +534,15 @@ class Player(QMainWindow):
             return
         if self.waiting_for_stick:
             # Give a replugged stick two seconds to settle before opening it.
-            self.stick_seen = self.stick_seen + 1 if self.device_present() else 0
+            self.stick_seen = self.stick_seen + 1 if stick_present() else 0
             if self.stick_seen >= 2:
                 self.waiting_for_stick = False
                 self.start_scan() if self.effective_source() == "local" else self.tune(self.last_signal)
             return
         if not self.current:
             return
-        if not self.device_present():
-            self.show_missing_device()
+        if not stick_present():
+            self.show_problem(NO_STICK, "NO RTL-SDR", True)
             return
         step = self.calibration
         if step and step["samples"] is not None and time.monotonic() - step["started"] > calibration.STEP_TIMEOUT_S:
@@ -729,13 +700,11 @@ class Player(QMainWindow):
 
     def open_settings(self):
         self.settings.load(self.lnb_mhz, self.gain_db, self.spectrum_source, self.band, self.lo_mhz(),
-                           self.stream_on, vlc_address(self.stream_to), self.device)
+                           self.stream_on, vlc_address(self.stream_to))
         self.pages.setCurrentWidget(self.settings)
 
     def close_settings(self):
         self.pages.setCurrentIndex(0)
-        device_changed = self.settings.device != self.device
-        self.device = self.settings.device
         if self.settings.network_on != self.stream_on:
             self.stream_on = self.settings.network_on
             self.receiver.stream_to = self.stream_to if self.stream_on else None   # applies at once
@@ -759,14 +728,7 @@ class Player(QMainWindow):
         self.lnb_mhz, self.gain_db = self.settings.lnb_mhz, self.settings.gain_db
         if self.band.converter_los:
             self.los[self.band.key] = lo
-        if device_changed:
-            print("DEVICE: " + self.device, flush=True)
-            self.save_settings()
-            self.stop(scan=False)
-            self.sweeper.stop()
-            self.spectrum.set_source(self.effective_source())
-            self.start_default()   # the beacon on QO-100, else the band's scan
-        elif changed:
+        if changed:
             self.save_settings()
             if self.current:
                 self.tune(self.current)
@@ -913,8 +875,7 @@ class Player(QMainWindow):
                                                       "lnb_mhz": self.lnb_mhz, "gains": self.gains, "los": self.los, "band": self.band.key,
                                                       "indicator": self.indicator, "spectrum": self.spectrum_source,
                                                       "udp_enabled": self.stream_on,
-                                                      "udp_destination": "udp://%s:%d" % self.stream_to,
-                                                      "device": self.device, "pluto_uri": self.pluto_uri}, indent=2))
+                                                      "udp_destination": "udp://%s:%d" % self.stream_to}, indent=2))
         except OSError:
             pass
 

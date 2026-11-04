@@ -717,36 +717,21 @@ class SettingsPage(QWidget):
         self.probe_timer = QTimer(self, singleShot=True, interval=4000)
         self.probe_timer.timeout.connect(lambda: self.show_internet("offline"))
 
-        # The receiver: RTL-SDR stick (gain set here) or ADALM-Pluto (automatic gain).
-        self.gain_card, card, self.gain_hint = self.card("gain", "Receiver", "")
-        self.device = "rtl"
+        self.gain_card, card, _ = self.card("gain", "RF gain",
+            "Lower it if strong signals overload the stick, raise it for weak stations.")
         row = QHBoxLayout()
         row.setSpacing(px(8))
-        self.device_buttons = {}
-        for device, text in (("rtl", "RTL-SDR"), ("pluto", "PLUTO")):
-            widget = QPushButton(text)
-            widget.setCheckable(True)
-            widget.setFocusPolicy(Qt.NoFocus)
-            widget.setFixedHeight(px(48))
-            widget.clicked.connect(lambda _, device=device: self.set_device(device))
-            row.addWidget(widget)
-            self.device_buttons[device] = widget
-        card.insertLayout(1, row)
-        row = QHBoxLayout()
-        row.setSpacing(px(8))
-        self.gain_buttons = []
         for text, step in (("−", -1), ("+", 1)):
             widget = QPushButton(text, objectName="symbol")
             widget.setFocusPolicy(Qt.NoFocus)
             widget.setFixedSize(px(96), px(56))
             widget.clicked.connect(lambda _, step=step: self.step_gain(step))
             row.addWidget(widget)
-            self.gain_buttons.append(widget)
             if step < 0:
                 self.gain = label(row, "big")
                 self.gain.setAlignment(Qt.AlignCenter)
         row.setStretchFactor(self.gain, 1)
-        card.insertLayout(2, row)
+        card.insertLayout(1, row)
 
         # The LNB is measured on the beacon rather than entered by hand.
         self.lnb_card, card, _ = self.card("dish", "LNB oscillator",
@@ -862,19 +847,7 @@ class SettingsPage(QWidget):
             widget.setChecked(state == on)
         self.network_address.setText("In VLC:  " + self.network_vlc)
 
-    def set_device(self, device):
-        self.device = device
-        for name, widget in self.device_buttons.items():
-            widget.setChecked(name == device)
-        for widget in self.gain_buttons:
-            widget.setEnabled(device == "rtl")
-        self.gain.setText("%.1f dB" % self.gain_db if device == "rtl" else "automatic")
-        self.gain_hint.setText("RF gain of the stick: lower it if strong signals overload it, raise it for weak stations."
-                               if device == "rtl" else
-                               "ADALM-Pluto on USB, with its own power supply on its PWR socket. Its gain is automatic; "
-                               "the local scan needs the RTL-SDR stick for now.")
-
-    def load(self, lnb_mhz, gain_db, source, band, lo_mhz, network_on=False, network_vlc="", device="rtl"):
+    def load(self, lnb_mhz, gain_db, source, band, lo_mhz, network_on=False, network_vlc=""):
         self.network_vlc = network_vlc
         self.set_network(network_on)
         if band.via_lnb:
@@ -900,7 +873,7 @@ class SettingsPage(QWidget):
         self.undo.hide()
         self.set_lnb(lnb_mhz)
         self.gain_db = min(GAINS, key=lambda value: abs(value - gain_db))
-        self.set_device(device)
+        self.gain.setText("%.1f dB" % self.gain_db)
 
     def show_calibration(self, result, previous):
         self.previous = previous
