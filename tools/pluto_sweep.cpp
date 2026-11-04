@@ -23,7 +23,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -82,8 +84,10 @@ bool measure(iio_buffer* buffer, std::vector<double>& power, const std::vector<f
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 5) {
-        std::fprintf(stderr, "usage: pluto_sweep uri start_Hz end_Hz gain_dB\n"
+    // --watch-stdin: stop when standard input closes (Windows has no SIGTERM for this).
+    const bool watchStdin = argc == 6 && std::strcmp(argv[5], "--watch-stdin") == 0;
+    if (argc != 5 && !watchStdin) {
+        std::fprintf(stderr, "usage: pluto_sweep uri start_Hz end_Hz gain_dB [--watch-stdin]\n"
                              "  e.g. pluto_sweep usb: 741000000 750000000 50\n");
         return 1;
     }
@@ -93,7 +97,10 @@ int main(int argc, char** argv) {
     if (!(start > 0) || !(end > start)) return 1;
     std::signal(SIGINT, requestStop);
     std::signal(SIGTERM, requestStop);
+#ifdef SIGPIPE
     std::signal(SIGPIPE, SIG_IGN);  // a closed reader is seen by fflush instead
+#endif
+    if (watchStdin) std::thread([] { while (std::getchar() != EOF) {} stopping = 1; }).detach();
 
     const double binHz = (double)kRate / kFft, usableHz = 2 * kFlatHz, span = end - start;
     const int keep = (int)(kFlatHz / binHz);   // bins used each side of a step's centre

@@ -9,7 +9,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
+#include <thread>
 #include <vector>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 static volatile std::sig_atomic_t stopping = 0;
 static void requestStop(int) { stopping = 1; }
@@ -23,8 +28,10 @@ static bool setNumber(iio_channel* channel, const char* attribute, long long val
 }
 
 int main(int argc, char** argv) {
-    if (argc != 5) {
-        std::fprintf(stderr, "usage: pluto_iq uri frequency_Hz sample_rate_Hz gain_dB|auto\n"
+    // --watch-stdin: stop when standard input closes (Windows has no SIGTERM for this).
+    const bool watchStdin = argc == 6 && std::strcmp(argv[5], "--watch-stdin") == 0;
+    if (argc != 5 && !watchStdin) {
+        std::fprintf(stderr, "usage: pluto_iq uri frequency_Hz sample_rate_Hz gain_dB|auto [--watch-stdin]\n"
                              "  e.g. pluto_iq usb: 741500000 2560000 auto   (usb: is faster than ip:192.168.2.1)\n");
         return 1;
     }
@@ -35,7 +42,13 @@ int main(int argc, char** argv) {
     if (frequency <= 0 || rate <= 0) return 1;
     std::signal(SIGINT, requestStop);
     std::signal(SIGTERM, requestStop);
+#ifdef SIGPIPE
     std::signal(SIGPIPE, SIG_IGN);  // a closed reader is seen by fwrite instead
+#endif
+#ifdef _WIN32
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
+    if (watchStdin) std::thread([] { while (std::getchar() != EOF) {} stopping = 1; }).detach();
 
     iio_context* context = iio_create_context_from_uri(uri);
     if (!context) {

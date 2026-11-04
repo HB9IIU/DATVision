@@ -33,10 +33,15 @@ if(DATVRX_PLUTO)
   find_path(IIO_INCLUDE_DIR iio.h REQUIRED)
   find_library(IIO_LIBRARY NAMES iio REQUIRED)
   # pluto_iq: I/Q pipe source for datvrx; pluto_sweep: stitched spectrum; pluto_find: the Settings search
+  find_package(Threads REQUIRED)
   foreach(tool pluto_iq pluto_sweep pluto_find)
     add_executable(${tool} tools/${tool}.cpp)
     target_include_directories(${tool} PRIVATE ${IIO_INCLUDE_DIR})
-    target_link_libraries(${tool} PRIVATE ${IIO_LIBRARY})
+    # Threads: the --watch-stdin stop used by the Windows app.
+    target_link_libraries(${tool} PRIVATE ${IIO_LIBRARY} Threads::Threads)
+    if(WIN32)
+      target_link_options(${tool} PRIVATE -static-libgcc -static-libstdc++)
+    endif()
   endforeach()
 endif()
 
