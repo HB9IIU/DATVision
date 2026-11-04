@@ -16,10 +16,19 @@ internal sealed class VideoClicks : IDisposable
     private Point _lastPoint;
     public event Action<bool> Clicked;   // true for the second click of a double click
 
-    public VideoClicks(Control video, Func<bool> inFront)
+    private readonly string _logPath;
+
+    public VideoClicks(Control video, Func<bool> inFront, string logPath)
     {
-        _video = video; _inFront = inFront; _proc = OnMouse;
+        _video = video; _inFront = inFront; _proc = OnMouse; _logPath = logPath;
         _hook = SetWindowsHookEx(MouseHook, _proc, GetModuleHandle(null), 0);
+        Log(_hook == IntPtr.Zero ? $"hook FAILED, error {Marshal.GetLastWin32Error()}" : "hook installed");
+    }
+
+    // Diagnosis: what each click looked like (player-clicks.log next to the other logs).
+    private void Log(string line)
+    {
+        try { File.AppendAllText(_logPath, $"{DateTime.Now:HH:mm:ss.fff} {line}{Environment.NewLine}"); } catch (IOException) { }
     }
 
     private IntPtr OnMouse(int code, IntPtr message, IntPtr data)
@@ -28,8 +37,10 @@ internal sealed class VideoClicks : IDisposable
         {
             var point = Marshal.PtrToStructure<HookData>(data).Point;
             // Hook calls arrive on the UI thread's message loop; checks are cheap.
-            if (_video.Visible && _video.IsHandleCreated && _inFront() &&
-                _video.RectangleToScreen(_video.ClientRectangle).Contains(point))
+            var area = _video.IsHandleCreated ? _video.RectangleToScreen(_video.ClientRectangle) : Rectangle.Empty;
+            bool front = _inFront();
+            Log($"click at {point.X},{point.Y} · video {area} visible {_video.Visible} · DATVision in front {front}");
+            if (_video.Visible && _video.IsHandleCreated && front && area.Contains(point))
             {
                 long now = Environment.TickCount64;
                 var size = SystemInformation.DoubleClickSize;
@@ -44,13 +55,13 @@ internal sealed class VideoClicks : IDisposable
 
     public void Dispose()
     {
-        if (_hook != IntPtr.Zero) { UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; }
+        if (_hook != IntPtr.Zero) { UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; Log("hook removed"); }
     }
 
     private delegate IntPtr HookProc(int code, IntPtr message, IntPtr data);
     [StructLayout(LayoutKind.Sequential)]
     private struct HookData { public Point Point; public int MouseData, Flags, Time; public IntPtr Extra; }
-    [DllImport("user32.dll")] private static extern IntPtr SetWindowsHookEx(int hook, HookProc proc, IntPtr module, int thread);
+    [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetWindowsHookEx(int hook, HookProc proc, IntPtr module, int thread);
     [DllImport("user32.dll")] private static extern bool UnhookWindowsHookEx(IntPtr hook);
     [DllImport("user32.dll")] private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);
     [DllImport("kernel32.dll")] private static extern IntPtr GetModuleHandle(string name);
