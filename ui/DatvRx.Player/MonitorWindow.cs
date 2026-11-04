@@ -26,7 +26,8 @@ public sealed class MonitorWindow : Form
     private readonly TuningEye _eye = new() { Dock = DockStyle.Fill };
     private readonly Button _sound = Button("🔊  30%"), _minus = Button("−"), _plus = Button("+"),
         _beacon = Button("BEACON"), _stop = Button("START"), _bands = Button("BANDS"), _settings = Button("⚙"), _quit = Button("⏻");
-    private readonly Button _recordButton = Button("● RECORD");
+    private readonly Button _recordButton = Button("● REC");
+    private readonly Button _playButton = Button("▶ PLAY");   // opens a recording, as on the Pi
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 250 };
     private readonly ToolTip _tips = new();
     private ReceiveBand _band = ReceiveBand.Presets[0];
@@ -150,6 +151,12 @@ public sealed class MonitorWindow : Form
             else if (_current != null || _scanning || _recording) await StopAsync();
             else await StartScanningAsync();
         };
+        _playButton.Click += async (_, _) =>
+        {
+            using var file = new OpenFileDialog { Filter = "Transport stream (*.ts)|*.ts|All files|*.*",
+                InitialDirectory = Directory.Exists(Path.Combine(_root, "Record")) ? Path.Combine(_root, "Record") : _root };
+            if (file.ShowDialog(this) == DialogResult.OK) await PlayRecordingAsync(file.FileName);
+        };
         _bands.Click += async (_, _) => await ChooseBandAsync(); _settings.Click += async (_, _) => await ConfigureAsync();
         _quit.Click += (_, _) => Close(); _video.DoubleClick += (_, _) => TogglePlayerWindow(); _placeholder.DoubleClick += (_, _) => TogglePlayerWindow();
         _video.Resize += (_, _) => FitVideo();
@@ -210,7 +217,7 @@ public sealed class MonitorWindow : Form
     private void UpdateRecordButton()
     {
         bool active = _receiver.IsRecording;
-        _recordButton.Text = active ? "● STOP REC" : "● RECORD";
+        _recordButton.Text = "● REC";   // red and blinking while recording, as on the Pi
         ((MonitorButton)_recordButton).RecordingActive = active;
         _recordButton.AccessibleName = active ? "Stop recording" : "Start recording";
         _recordButton.Invalidate();
@@ -235,16 +242,18 @@ public sealed class MonitorWindow : Form
     }
     private Control BuildControls()
     {
-        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = MonitorColors.Panel, ColumnCount = 1, RowCount = 7, Padding = new Padding(6), Margin = new Padding(6, 0, 0, 0) };
+        // The Pi's right column: sound, volume, BEACON, REC, PLAY, BANDS, settings, quit.
+        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = MonitorColors.Panel, ColumnCount = 1, RowCount = 8, Padding = new Padding(6), Margin = new Padding(6, 0, 0, 0) };
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (int i = 0; i < 7; i++) panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / 7));
+        for (int i = 0; i < 8; i++) panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / 8));
         var volume = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
         volume.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); volume.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         volume.Controls.Add(_minus); volume.Controls.Add(_plus);
-        Control[] rows = [_sound, volume, _beacon, _recordButton, _bands, _settings, _quit];
+        Control[] rows = [_sound, volume, _beacon, _recordButton, _playButton, _bands, _settings, _quit];
         for (int i = 0; i < rows.Length; i++) panel.Controls.Add(rows[i], 0, i);
         _settings.Font = new Font("Segoe UI Symbol", 17); _quit.Font = new Font("Segoe UI Symbol", 18); _quit.ForeColor = MonitorColors.Red;
         _tips.SetToolTip(_settings, "Settings and credits"); _tips.SetToolTip(_quit, "Quit DATVision");
+        _tips.SetToolTip(_playButton, "Play a recording from the Record folder.");
         return panel;
     }
     private ReceiveBand EffectiveBand() => _band.Key == "qo100" ? _band with { LoMhz = _saved.EffectiveLoMhz.Value } : _band;
@@ -532,17 +541,12 @@ public sealed class MonitorWindow : Form
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         grid.RowStyles.Add(new RowStyle(SizeType.Percent, 44)); grid.RowStyles.Add(new RowStyle(SizeType.Percent, 56));
         grid.Controls.Add(spectrumCard, 0, 0); grid.Controls.Add(lnbCard, 1, 0); grid.Controls.Add(receiverCard, 0, 1); grid.Controls.Add(networkCard, 1, 1);
-        var replay = Choice("Open TS recording…"); replay.Click += async (_, _) =>
-        {
-            using var file = new OpenFileDialog { Filter = "Transport stream (*.ts)|*.ts|All files|*.*", InitialDirectory = Directory.Exists(Path.Combine(_root, "Record")) ? Path.Combine(_root, "Record") : _root };
-            if (file.ShowDialog(dialog) == DialogResult.OK) { dialog.Close(); await PlayRecordingAsync(file.FileName); }
-        };
         var top = new CheckBox { Text = "Always on top", Checked = TopMost, Dock = DockStyle.Fill, ForeColor = MonitorColors.Text, Font = new Font("Segoe UI", 10) };
         var cancel = Choice("Cancel"); cancel.DialogResult = DialogResult.Cancel; dialog.CancelButton = cancel;
         var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, Margin = Padding.Empty };
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
-        footer.Controls.Add(replay, 0, 0); footer.Controls.Add(top, 1, 0); footer.Controls.Add(cancel, 3, 0);
+        footer.Controls.Add(top, 0, 0); footer.Controls.Add(cancel, 3, 0);
         var page = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(14), BackColor = MonitorColors.Background };
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 54)); page.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); page.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
         page.Controls.Add(header, 0, 0); page.Controls.Add(grid, 0, 1); page.Controls.Add(footer, 0, 2);
