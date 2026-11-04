@@ -11,10 +11,11 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import traceback
 
-from PyQt5.QtCore import Qt, QTimer, QEvent
+from PyQt5.QtCore import Qt, QTimer, QEvent, QObject, pyqtSignal
 from PyQt5.QtGui import QFont, QKeySequence
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QShortcut, QMessageBox, QFrame, QStackedLayout, QStackedWidget)
@@ -30,13 +31,14 @@ from video import Video
 import shutil
 from ts_info import TsInfo, callsign
 import mpv_video
-from panels import GREEN, AMBER, RED, DIM, GAINS, REQUIRED_ESN0, InfoPanel, ControlPanel, SettingsPage, BandsPage, RecordingsPage, AboutPage
+from panels import GREEN, AMBER, RED, DIM, GAINS, REQUIRED_ESN0, InfoPanel, ControlPanel, SettingsPage, BandsPage, RecordingsPage, AboutPage, PlutoPage
 
 REPORT = re.compile(r"(DVB-S2X|DVB-S2|DVB-S) (\S+) (\d+/\d+)\S*(?: short)?(?: pilots)?\s+[\d.]+ Msym/s"
                     r"\s+Es/N0 ([\d.-]+) dB\s+ok \d+\s+bad (\d+)")
 RTL_SDR_IDS = {("0bda", "2838"), ("0bda", "2832")}
 PLUTO_IDS = {("0456", "b673")}   # ADALM-Pluto and clones such as the PlutoSky
 NO_STICK = "RTL-SDR stick not found\n\nUnplug it and plug it back in.\nReception resumes by itself."
+PLUTO_NO_POWER = "Pluto is not getting enough power\n\nConnect a 5 V charger to its PWR socket.\nReception resumes by itself."
 NO_PLUTO = "Pluto not found\n\nCheck its power supply and its USB or network cable.\nReception resumes by itself."
 STICK_BUSY = "RTL-SDR stick is busy\n\nUnplug it and plug it back in.\nIf that does not help, restart the Pi."
 PLUTO_NO_SCAN = "The local scan needs the RTL-SDR stick\n\nWith the Pluto, QO-100 with the BATC spectrum\nworks; other bands follow."
@@ -69,6 +71,8 @@ STYLE = """
     QPushButton#half { font-size: 12px; }
     QPushButton#accent { background: #1f5a44; border-color: #50d7a0; }
     QPushButton#band { min-height: 116px; }
+    QPushButton#plutoCard { min-height: 92px; text-align: left; }
+    QPushButton#plutoCard[current="true"] { background: #1f5a44; border-color: #50d7a0; }
     QLabel#bandName { color: #dde8f1; font-size: 28px; font-weight: 700; }
     QLabel#bandRange { color: #dde8f1; font-size: 15px; }
     QLabel#bandSource { color: #91a7ba; font-size: 12px; }
@@ -101,6 +105,18 @@ def pi_model():
 SLOW_PI = "Raspberry Pi 4" in pi_model()
 
 
+def pluto_starving():
+    """A Pluto stuck in its bootloader on USB (solid LED): it restarts for lack of power."""
+    for device in Path("/sys/bus/usb/devices").iterdir():
+        try:
+            if (device / "manufacturer").read_text().strip() == "U-Boot" and \
+                    (device / "product").read_text().strip() == "USB download gadget":
+                return True
+        except OSError:
+            pass
+    return False
+
+
 def stick_present(kind="rtl"):
     ids = PLUTO_IDS if kind == "pluto" else RTL_SDR_IDS
     for device in Path("/sys/bus/usb/devices").iterdir():
@@ -110,6 +126,31 @@ def stick_present(kind="rtl"):
         except OSError:
             pass
     return False
+
+
+class PlutoSearch(QObject):
+    """Runs pluto_find in the background: (uri, model, serial) for each Pluto found."""
+    found = pyqtSignal(list)
+
+    def __init__(self, root):
+        super().__init__()
+        self.root = root
+
+    def start(self):
+        threading.Thread(target=self.run, daemon=True).start()
+
+    def run(self):
+        plutos = []
+        try:
+            done = subprocess.run([str(self.root / "build/linux/pluto_find")], capture_output=True, text=True, timeout=20)
+            for line in done.stdout.splitlines():
+                parts = line.split("\t")
+                if len(parts) == 4 and parts[0] == "pluto":
+                    plutos.append(tuple(parts[1:]))
+        except (OSError, subprocess.SubprocessError):
+            pass
+        print("PLUTO SEARCH: %s" % (", ".join(uri for uri, _, _ in plutos) or "none"), flush=True)
+        self.found.emit(plutos)
 
 
 class Player(QMainWindow):
@@ -129,6 +170,7 @@ class Player(QMainWindow):
         self.spectrum_source = "batc"   # QO-100 default; LOCAL scans with the stick
         self.stream_on, self.stream_to = False, udp_endpoint(DEFAULT_STREAM)   # live reception to the home network
         self.device, self.pluto_uri = "rtl", DEFAULT_PLUTO   # the receiver: RTL-SDR stick or ADALM-Pluto
+        self.pluto_name = ""
         try:
             settings = json.loads(self.settings_path.read_text())
             self.volume = max(0, min(100, int(settings.get("volume", 40))))
@@ -142,6 +184,7 @@ class Player(QMainWindow):
             self.stream_on = bool(settings.get("udp_enabled", False))
             self.device = "pluto" if settings.get("device") == "pluto" else "rtl"
             self.pluto_uri = str(settings.get("pluto_uri", DEFAULT_PLUTO))
+            self.pluto_name = str(settings.get("pluto_name", ""))
             try:   # no keyboard on the Pi: another destination is set in this file
                 self.stream_to = udp_endpoint(settings.get("udp_destination", DEFAULT_STREAM))
             except ValueError:
@@ -210,6 +253,14 @@ class Player(QMainWindow):
         self.about_page = AboutPage(CREDITS, LICENCE, version, root / "assets/branding/datvision-wordmark.png")
         self.pages.addWidget(self.about_page)
         self.settings.about.connect(lambda: self.pages.setCurrentWidget(self.about_page))
+        self.pluto_page = PlutoPage()
+        self.pages.addWidget(self.pluto_page)
+        self.pluto_search = PlutoSearch(root)
+        self.pluto_search.found.connect(lambda plutos: self.pluto_page.show_found(plutos, pluto_starving()))
+        self.settings.choose_pluto.connect(self.open_pluto_page)
+        self.pluto_page.search.connect(self.search_plutos)
+        self.pluto_page.back.connect(lambda: self.pages.setCurrentWidget(self.settings))
+        self.pluto_page.chosen.connect(self.pluto_chosen)
         self.about_page.back.connect(lambda: self.pages.setCurrentWidget(self.settings))
         self.about_page.quit.connect(self.close)
         self.pages.addWidget(self.settings)
@@ -320,6 +371,21 @@ class Player(QMainWindow):
             return "batc"
         return self.spectrum_source if self.band.via_lnb else "local"
 
+    # ---- choosing a Pluto: the ones found on USB and the network
+    def open_pluto_page(self):
+        self.pages.setCurrentWidget(self.pluto_page)
+        self.search_plutos()
+
+    def search_plutos(self):
+        self.pluto_page.show_searching(self.settings.pluto_uri)
+        self.pluto_search.start()
+
+    def pluto_chosen(self, uri, name):
+        print("PLUTO chosen: %s (%s)" % (uri, name), flush=True)
+        self.settings.set_pluto(uri, name)
+        self.settings.set_device("pluto")
+        self.pages.setCurrentWidget(self.settings)   # applied with DONE, like every setting
+
     def device_present(self):
         # A Pluto on the network (ip:…) is not on USB: ask its IIO server instead.
         if self.device == "pluto" and self.pluto_uri.startswith("ip:"):
@@ -332,7 +398,10 @@ class Player(QMainWindow):
 
     def show_missing_device(self):
         if self.device == "pluto":
-            self.show_problem(NO_PLUTO, "NO PLUTO", True)
+            if pluto_starving():
+                self.show_problem(PLUTO_NO_POWER, "PLUTO POWER", True)
+            else:
+                self.show_problem(NO_PLUTO, "NO PLUTO", True)
         else:
             self.show_problem(NO_STICK, "NO RTL-SDR", True)
 
@@ -729,13 +798,17 @@ class Player(QMainWindow):
 
     def open_settings(self):
         self.settings.load(self.lnb_mhz, self.gain_db, self.spectrum_source, self.band, self.lo_mhz(),
-                           self.stream_on, vlc_address(self.stream_to), self.device)
+                           self.stream_on, vlc_address(self.stream_to), self.device,
+                           self.pluto_uri, self.pluto_name)
         self.pages.setCurrentWidget(self.settings)
 
     def close_settings(self):
         self.pages.setCurrentIndex(0)
-        device_changed = self.settings.device != self.device
+        chosen = self.settings.pluto_uri or self.pluto_uri
+        device_changed = (self.settings.device, chosen) != (self.device, self.pluto_uri)
         self.device = self.settings.device
+        if self.settings.pluto_uri:
+            self.pluto_uri, self.pluto_name = self.settings.pluto_uri, self.settings.pluto_name
         if self.settings.network_on != self.stream_on:
             self.stream_on = self.settings.network_on
             self.receiver.stream_to = self.stream_to if self.stream_on else None   # applies at once
@@ -914,7 +987,8 @@ class Player(QMainWindow):
                                                       "indicator": self.indicator, "spectrum": self.spectrum_source,
                                                       "udp_enabled": self.stream_on,
                                                       "udp_destination": "udp://%s:%d" % self.stream_to,
-                                                      "device": self.device, "pluto_uri": self.pluto_uri}, indent=2))
+                                                      "device": self.device, "pluto_uri": self.pluto_uri,
+                                                      "pluto_name": self.pluto_name}, indent=2))
         except OSError:
             pass
 

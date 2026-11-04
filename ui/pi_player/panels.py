@@ -590,6 +590,106 @@ class RecordingsPage(QWidget):
         widget.setText("DELETE?")
 
 
+def pluto_label(uri, model):
+    """Short name for a found Pluto: its model without the chip, and where it is."""
+    where = "USB" if uri.startswith("usb:") else uri[3:] if uri.startswith("ip:") else uri
+    return "%s · %s" % (model.split(" (")[0], where)
+
+
+class PlutoPage(QWidget):
+    """The Plutos found on USB and the network: tap one to use it."""
+    chosen = pyqtSignal(str, str)
+    search = pyqtSignal()
+    back = pyqtSignal()
+
+    def __init__(self):
+        super().__init__(objectName="settings")
+        self.current = ""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(px(24), px(16), px(24), px(16))
+        layout.setSpacing(px(12))
+        top = QHBoxLayout()
+        heading = QVBoxLayout()
+        heading.setSpacing(px(2))
+        label(heading, "title", "Pluto")
+        self.status = label(heading, "value")
+        self.status.setStyleSheet(style("font-size: 16px;"))
+        top.addLayout(heading)
+        top.addStretch()
+        self.search_button = button(top, "SEARCH AGAIN", self.search)
+        self.search_button.setFixedSize(px(190), px(60))
+        top.addSpacing(px(8))
+        button(top, "BACK", self.back).setFixedSize(px(150), px(60))
+        layout.addLayout(top)
+        # Always on view: a Pluto on USB also needs its own power, or it keeps restarting.
+        box = QFrame()
+        box.setStyleSheet(style("QFrame { border: 2px solid #ffbf47; border-radius: 10px; background: #2a2410; }"
+                                "QLabel { border: none; background: transparent; color: #ffbf47; }"))
+        line = QHBoxLayout(box)
+        line.setContentsMargins(px(16), px(10), px(16), px(10))
+        line.setSpacing(px(14))
+        sign = QLabel("⚠")
+        sign.setStyleSheet(style("font-family: 'DejaVu Sans'; font-size: 34px;"))
+        line.addWidget(sign)
+        self.warning = QLabel()
+        self.warning.setWordWrap(True)
+        line.addWidget(self.warning, 1)
+        layout.addWidget(box)
+        self.show_power(False)
+        self.rows = QVBoxLayout()
+        self.rows.setSpacing(px(10))
+        layout.addLayout(self.rows)
+        layout.addStretch()
+        hint = label(layout, "value", "On the network a Pluto is found by its name, so a new address does not matter.")
+        hint.setWordWrap(True)
+
+    def show_power(self, starving):
+        self.warning.setText(
+            "<b>A Pluto on USB is not getting enough power and keeps restarting.</b><br>"
+            "Connect a 5 V charger (1 A or more) to its PWR socket." if starving else
+            "<b>A Pluto on USB also needs its own power supply.</b><br>"
+            "Connect a 5 V charger (1 A or more) to its PWR socket; the Pi's USB alone is not enough.")
+        self.warning.setStyleSheet(style("font-size: %dpx;" % (18 if starving else 16)))
+
+    def clear(self):
+        while self.rows.count():
+            self.rows.takeAt(0).widget().deleteLater()
+
+    def show_searching(self, current):
+        self.current = current
+        self.clear()
+        self.status.setText("Searching on USB and the network…")
+        self.show_power(False)
+        self.search_button.setEnabled(False)
+
+    def show_found(self, plutos, starving=False):
+        self.clear()
+        self.search_button.setEnabled(True)
+        self.status.setText("%d Pluto%s found · tap one to use it" % (len(plutos), "" if len(plutos) == 1 else "s")
+                            if plutos else "No Pluto found · check its power and its USB or network cable")
+        self.show_power(starving)   # one more on USB that keeps restarting
+        for uri, model, serial in plutos:
+            name = pluto_label(uri, model)
+            # A large card: the name, then model and serial (none on original Plutos: all f).
+            # Its height comes from the style (QPushButton#plutoCard): a fixed height set here
+            # would lose against the general button min-height.
+            widget = QPushButton(objectName="plutoCard")
+            widget.setProperty("current", uri == self.current)
+            widget.setFocusPolicy(Qt.NoFocus)
+            lines = QVBoxLayout(widget)
+            lines.setContentsMargins(px(24), px(12), px(24), px(12))
+            lines.setSpacing(px(4))
+            title = QLabel(name)
+            title.setStyleSheet(style("font-size: 24px; font-weight: 700; color: #edf5fa; background: transparent;"))
+            detail = QLabel(model if serial.startswith("ffff") or serial == "?" else "%s  ·  serial %s" % (model, serial))
+            detail.setStyleSheet(style("font-size: 16px; color: #9cb4c5; background: transparent;"))
+            for text in (title, detail):
+                text.setAttribute(Qt.WA_TransparentForMouseEvents)
+                lines.addWidget(text)
+            widget.clicked.connect(lambda _, uri=uri, name=name: self.chosen.emit(uri, name))
+            self.rows.addWidget(widget)
+
+
 class AboutPage(QWidget):
     back = pyqtSignal()
     quit = pyqtSignal()
@@ -658,6 +758,7 @@ class SettingsPage(QWidget):
     done = pyqtSignal()
     calibrate = pyqtSignal()
     about = pyqtSignal()
+    choose_pluto = pyqtSignal()
 
     def __init__(self):
         super().__init__(objectName="settings")
@@ -728,10 +829,14 @@ class SettingsPage(QWidget):
             widget.setCheckable(True)
             widget.setFocusPolicy(Qt.NoFocus)
             widget.setFixedHeight(px(48))
-            widget.clicked.connect(lambda _, device=device: self.set_device(device))
+            widget.clicked.connect(lambda _, device=device: self.device_tapped(device))
             row.addWidget(widget)
             self.device_buttons[device] = widget
         card.insertLayout(1, row)
+        self.pluto_uri, self.pluto_name = "", ""
+        self.pluto_button = button(None, "", self.choose_pluto)
+        self.pluto_button.setFixedHeight(px(48))
+        card.insertWidget(2, self.pluto_button)
         row = QHBoxLayout()
         row.setSpacing(px(8))
         self.gain_buttons = []
@@ -746,7 +851,7 @@ class SettingsPage(QWidget):
                 self.gain = label(row, "big")
                 self.gain.setAlignment(Qt.AlignCenter)
         row.setStretchFactor(self.gain, 1)
-        card.insertLayout(2, row)
+        card.insertLayout(3, row)
 
         # The LNB is measured on the beacon rather than entered by hand.
         self.lnb_card, card, _ = self.card("dish", "LNB oscillator",
@@ -862,8 +967,19 @@ class SettingsPage(QWidget):
             widget.setChecked(state == on)
         self.network_address.setText("In VLC:  " + self.network_vlc)
 
+    def device_tapped(self, device):
+        self.set_device(device)
+        if device == "pluto" and not self.pluto_name:
+            self.choose_pluto.emit()   # no Pluto chosen yet: show the ones found
+
+    def set_pluto(self, uri, name):
+        self.pluto_uri, self.pluto_name = uri, name
+        shown = name or (uri[3:] if uri.startswith("ip:") else "USB" if uri.startswith("usb:") else uri)
+        self.pluto_button.setText("▸  " + (shown or "Choose a Pluto"))
+
     def set_device(self, device):
         self.device = device
+        self.pluto_button.setVisible(device == "pluto")
         for name, widget in self.device_buttons.items():
             widget.setChecked(name == device)
         for widget in self.gain_buttons:
@@ -871,10 +987,12 @@ class SettingsPage(QWidget):
         self.gain.setText("%.1f dB" % self.gain_db if device == "rtl" else "automatic")
         self.gain_hint.setText("RF gain of the stick: lower it if strong signals overload it, raise it for weak stations."
                                if device == "rtl" else
-                               "ADALM-Pluto on USB, with its own power supply on its PWR socket. Its gain is automatic; "
+                               "ADALM-Pluto: tap its name to choose another. Its gain is automatic; "
                                "the local scan needs the RTL-SDR stick for now.")
 
-    def load(self, lnb_mhz, gain_db, source, band, lo_mhz, network_on=False, network_vlc="", device="rtl"):
+    def load(self, lnb_mhz, gain_db, source, band, lo_mhz, network_on=False, network_vlc="", device="rtl",
+             pluto_uri="", pluto_name=""):
+        self.set_pluto(pluto_uri, pluto_name)
         self.network_vlc = network_vlc
         self.set_network(network_on)
         if band.via_lnb:

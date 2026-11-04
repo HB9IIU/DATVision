@@ -32,10 +32,12 @@ endif()
 if(DATVRX_PLUTO)
   find_path(IIO_INCLUDE_DIR iio.h REQUIRED)
   find_library(IIO_LIBRARY NAMES iio REQUIRED)
-  # pluto_iq: 16-bit I/Q pipe source for datvrx --format cs16
-  add_executable(pluto_iq tools/pluto_iq.cpp)
-  target_include_directories(pluto_iq PRIVATE ${IIO_INCLUDE_DIR})
-  target_link_libraries(pluto_iq PRIVATE ${IIO_LIBRARY})
+  # pluto_iq: I/Q pipe source for datvrx; pluto_sweep: stitched spectrum; pluto_find: the Settings search
+  foreach(tool pluto_iq pluto_sweep pluto_find)
+    add_executable(${tool} tools/${tool}.cpp)
+    target_include_directories(${tool} PRIVATE ${IIO_INCLUDE_DIR})
+    target_link_libraries(${tool} PRIVATE ${IIO_LIBRARY})
+  endforeach()
 endif()
 
 # ---- Rust part (BCH, Reed-Solomon, LDPC table set-up, TS tables, DVB text): one static library made by cargo
