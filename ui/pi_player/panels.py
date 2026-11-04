@@ -602,6 +602,35 @@ def pluto_label(pluto):
     return "%s · %s" % (pluto["model"].split(" (")[0], where)
 
 
+class Spinner(QWidget):
+    """A turning arc while something is being searched."""
+
+    def __init__(self, size):
+        super().__init__()
+        self.angle = 0
+        self.setFixedSize(size, size)
+        self.timer = QTimer(self, interval=30)
+        self.timer.timeout.connect(self.turn)
+
+    def turn(self):
+        self.angle = (self.angle - 12) % 360
+        self.update()
+
+    def setVisible(self, visible):
+        super().setVisible(visible)
+        self.timer.start() if visible else self.timer.stop()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        width = max(4, self.width() // 12)
+        area = QRectF(width, width, self.width() - 2 * width, self.height() - 2 * width)
+        p.setPen(QPen(QColor("#1d3446"), width))
+        p.drawEllipse(area)
+        p.setPen(QPen(QColor(GREEN), width, Qt.SolidLine, Qt.RoundCap))
+        p.drawArc(area, self.angle * 16, 100 * 16)
+
+
 class PlutoPage(QWidget):
     """The Plutos found on USB and the network: tap one to use it."""
     chosen = pyqtSignal(object)   # the offered Pluto: uri, name, model, serial, address
@@ -645,6 +674,10 @@ class PlutoPage(QWidget):
         self.rows = QVBoxLayout()
         self.rows.setSpacing(px(10))
         layout.addLayout(self.rows)
+        self.spinner = Spinner(px(96))
+        layout.addSpacing(px(30))
+        layout.addWidget(self.spinner, 0, Qt.AlignHCenter)
+        self.spinner.hide()
         layout.addStretch()
         hint = label(layout, "value", "The chosen Pluto is found again by its serial number, its name or its address, "
                                       "so a new address after a restart does not matter.")
@@ -669,12 +702,14 @@ class PlutoPage(QWidget):
         self.current = current
         self.clear()
         self.status.setText("Searching on USB and the network…")
+        self.spinner.show()
         self.show_power(False)
         self.search_button.setEnabled(False)
 
     def show_found(self, found, starving=False):
         plutos, twice = offered(found)
         self.clear()
+        self.spinner.hide()
         self.search_button.setEnabled(True)
         self.status.setText("%d Pluto%s found · tap one to use it" % (len(plutos), "" if len(plutos) == 1 else "s")
                             if plutos else "No Pluto found · check its power and its USB or network cable")
