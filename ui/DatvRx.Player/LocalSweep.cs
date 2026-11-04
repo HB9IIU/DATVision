@@ -9,18 +9,24 @@ public sealed class LocalSweep(string root)
     private Task _reader, _errors;
     public event Action<MonitorFrame> Frame;
     public event Action<string> Status;
+    // The Pluto to sweep with (usb:… or ip:…), or null for the RTL-SDR stick.
+    public string PlutoUri { get; set; }
+    const int PlutoGainDb = 50;   // fixed for the sweep, as on the Pi: an automatic gain would differ per step
     public async Task StartAsync(ReceiveBand band, double gain)
     {
         await StopAsync();
         double start = band.StartMhz - band.LoMhz, end = band.EndMhz - band.LoMhz;
-        if (start < 24 || end > 1766 || start >= end) throw new ArgumentException("Band is outside the SDR's tuning range");
-        string executable = Path.Combine(root, "build/windows/rtl_sweep.exe");
+        bool pluto = PlutoUri != null;
+        if (start < (pluto ? 47 : 24) || end > (pluto ? 6000 : 1766) || start >= end) throw new ArgumentException("Band is outside the SDR's tuning range");
+        string executable = Path.Combine(root, pluto ? "build/windows/pluto_sweep.exe" : "build/windows/rtl_sweep.exe");
         var info = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true,
             RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = root };
         string msys = Environment.GetEnvironmentVariable("DATVRX_MSYS_ROOT") ?? @"C:\msys64";
         string bundled = Path.Combine(root, "runtime/bin");
         info.Environment["PATH"] = (Directory.Exists(bundled) ? bundled : Path.Combine(msys, "ucrt64/bin")) + ";" + Environment.GetEnvironmentVariable("PATH");
-        foreach (string argument in new[] { Math.Round(start * 1e6).ToString(CultureInfo.InvariantCulture), Math.Round(end * 1e6).ToString(CultureInfo.InvariantCulture), gain.ToString(CultureInfo.InvariantCulture), "--watch-stdin" }) info.ArgumentList.Add(argument);
+        if (pluto) info.ArgumentList.Add(PlutoUri);
+        foreach (string argument in new[] { Math.Round(start * 1e6).ToString(CultureInfo.InvariantCulture), Math.Round(end * 1e6).ToString(CultureInfo.InvariantCulture),
+            (pluto ? PlutoGainDb : gain).ToString(CultureInfo.InvariantCulture), "--watch-stdin" }) info.ArgumentList.Add(argument);
         var process = Process.Start(info) ?? throw new IOException("Could not start the SDR scanner");
         _process = process;
         _reader = Task.Run(async () =>

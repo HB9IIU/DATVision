@@ -54,7 +54,7 @@ public sealed class MonitorWindow : Form
         ReadSettings();
         // Always open on the QO-100 beacon with the internet spectrum reference.
         _band = ReceiveBand.Presets[0]; _saved.Band = _band.Key; _saved.Source = "BATC";
-        _receiver = new LocalReceiver(root) { UdpDestination = _saved.UdpEnabled ? _saved.UdpDestination : null, PlutoUri = _saved.Device == "Pluto" ? _saved.PlutoUri : null }; _sweep = new LocalSweep(root);
+        _receiver = new LocalReceiver(root) { UdpDestination = _saved.UdpEnabled ? _saved.UdpDestination : null, PlutoUri = _saved.Device == "Pluto" ? _saved.PlutoUri : null }; _sweep = new LocalSweep(root) { PlutoUri = _receiver.PlutoUri };
         _spectrum.Receiver = _receiver.PlutoUri != null ? "PLUTO" : "RTL-SDR";
         Text = "DATVision · HB9IIU"; Icon = BrandAssets.Icon; Font = new Font("Segoe UI", 9);
         BackColor = MonitorColors.Background; ForeColor = MonitorColors.Text;
@@ -597,7 +597,7 @@ public sealed class MonitorWindow : Form
             {
                 _saved.PlutoUri = chosen.Uri; _saved.PlutoName = chosen.Name; _saved.PlutoSerial = chosen.Serial; _saved.PlutoAddress = chosen.Address;
             }
-            _receiver.PlutoUri = pluto ? _saved.PlutoUri : null;
+            _receiver.PlutoUri = _sweep.PlutoUri = pluto ? _saved.PlutoUri : null;
             _spectrum.Receiver = pluto ? "PLUTO" : "RTL-SDR";
             SaveSettings(); dialog.DialogResult = DialogResult.OK; dialog.Close();
         };
