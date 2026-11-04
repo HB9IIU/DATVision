@@ -52,7 +52,7 @@ public sealed class MonitorWindow : Form
         ReadSettings();
         // Always open on the QO-100 beacon with the internet spectrum reference.
         _band = ReceiveBand.Presets[0]; _saved.Band = _band.Key; _saved.Source = "BATC";
-        _receiver = new LocalReceiver(root) { UdpDestination = _saved.UdpEnabled ? _saved.UdpDestination : null }; _sweep = new LocalSweep(root);
+        _receiver = new LocalReceiver(root) { UdpDestination = _saved.UdpEnabled ? _saved.UdpDestination : null, PlutoUri = _saved.Device == "Pluto" ? _saved.PlutoUri : null }; _sweep = new LocalSweep(root);
         Text = "DATVision · HB9IIU"; Icon = BrandAssets.Icon; Font = new Font("Segoe UI", 9);
         BackColor = MonitorColors.Background; ForeColor = MonitorColors.Text;
         ClientSize = new Size(1024, 600); FormBorderStyle = FormBorderStyle.FixedSingle; MaximizeBox = false;
@@ -277,7 +277,7 @@ public sealed class MonitorWindow : Form
     {
         if (_busy || _closing) return;
         var request = new TuneRequest(mhz, symbols, EffectiveBand().LoMhz, _saved.Gain);
-        if (LocalReceiver.Validate(request) is { } error) { ShowMessage(error); return; }
+        if (LocalReceiver.Validate(request, _receiver.PlutoUri != null) is { } error) { ShowMessage(error); return; }
         _busy = true;
         try
         {
@@ -698,7 +698,7 @@ public sealed class MonitorWindow : Form
         _saved.LnbMhz = null; _saved.DownconverterLoMhz = null; _saved.FrequencyCorrectionKhz = 0;
     }
     private void SaveSettings() { try { File.WriteAllText(_settingsPath, JsonSerializer.Serialize(_saved, new JsonSerializerOptions { WriteIndented = true })); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { } }
-    private sealed class Settings { public bool UdpEnabled { get; set; } public string UdpDestination { get; set; } = UdpStreamAddress.Default; public int Volume { get; set; } = 30; public bool Muted { get; set; } public bool TopMost { get; set; } = true; public double Gain { get; set; } = 40.2; [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public double? LnbMhz { get; set; } [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public double? DownconverterLoMhz { get; set; } [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public double FrequencyCorrectionKhz { get; set; } public double? EffectiveLoMhz { get; set; } public string Source { get; set; } = "BATC"; public string Band { get; set; } = "qo100"; }
+    private sealed class Settings { public bool UdpEnabled { get; set; } public string UdpDestination { get; set; } = UdpStreamAddress.Default; public int Volume { get; set; } = 30; public bool Muted { get; set; } public bool TopMost { get; set; } = true; public double Gain { get; set; } = 40.2; [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public double? LnbMhz { get; set; } [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public double? DownconverterLoMhz { get; set; } [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public double FrequencyCorrectionKhz { get; set; } public double? EffectiveLoMhz { get; set; } public string Source { get; set; } = "BATC"; public string Band { get; set; } = "qo100"; public string Device { get; set; } = "RTL"; public string PlutoUri { get; set; } public string PlutoName { get; set; } public string PlutoSerial { get; set; } public string PlutoAddress { get; set; } }
     private static Label Readout(string text, float size = 9, bool bold = false) => new() { Text = text, Dock = DockStyle.Fill, ForeColor = MonitorColors.Dim, BackColor = Color.Transparent, Font = new Font("Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular), AutoEllipsis = true, Margin = Padding.Empty };
     private static Button Button(string text) => new MonitorButton() { Text = text, Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat, FlatAppearance = { BorderColor = Color.FromArgb(41, 72, 92) }, BackColor = Color.FromArgb(27, 49, 64), ForeColor = MonitorColors.Text, Font = new Font("Segoe UI", 9, FontStyle.Bold), Cursor = Cursors.Hand, Margin = new Padding(3), TabStop = false };
     private static Form Dialog(string title, int width, int height) => new() { Text = title, Icon = BrandAssets.Icon, ClientSize = new Size(width, height), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, BackColor = MonitorColors.Background, ForeColor = MonitorColors.Text, MinimizeBox = false, MaximizeBox = false };
