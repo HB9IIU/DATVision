@@ -743,7 +743,6 @@ class PlutoPage(QWidget):
 
 class AboutPage(QWidget):
     back = pyqtSignal()
-    quit = pyqtSignal()
 
     def __init__(self, credits, licence, version, wordmark=None):
         super().__init__(objectName="about")
@@ -778,6 +777,9 @@ class AboutPage(QWidget):
         codecs.addWidget(self.h266_note)
         codecs.addStretch()
         layout.addLayout(codecs)
+        receivers = QLabel("Receivers: RTL-SDR (R820T, Blog V4)  ·  ADALM-Pluto and clones (PlutoSky / FISHBall)",
+                           objectName="role")
+        layout.addWidget(receivers, 0, Qt.AlignHCenter)
         self.show_h266(False)
         layout.addSpacing(px(6))
         grid = QGridLayout()
@@ -793,8 +795,6 @@ class AboutPage(QWidget):
         layout.addLayout(holder)
         layout.addStretch()
         layout.addWidget(QLabel(licence, objectName="licence"), 0, Qt.AlignHCenter)
-        quit_button = button(layout, "QUIT TO DESKTOP", self.quit, "danger")
-        quit_button.setFixedHeight(px(60))
 
     def show_h266(self, available):
         color = "#57f59f" if available else "#7f93a3"

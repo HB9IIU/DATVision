@@ -51,6 +51,7 @@ CREDITS = (("DVB-S/S2 decoder", "based on OnAir by Kristijonas Adomaitis (adswil
            ("DVB-S/S2 contributions", "Arclamp"),
            ("BATC spectrum, signal finder", "HB9IIU Experimental H.266 Player"),
            ("Magic eye", "after HB9IIU SDR-Tiouner, inspired by the Lynx DATV Receiver (G8YTZ)"),
+           ("Pluto support", "libiio by Analog Devices; tested with the Tezuka firmware by F5OEO"),
            ("Video, interface", "mpv (libVLC fallback), PyQt5"))
 LICENCE = "GPL v3 · see LICENSE and the bundled source and notices."
 
@@ -285,7 +286,6 @@ class Player(QMainWindow):
         self.pluto_page.back.connect(lambda: self.pages.setCurrentWidget(self.settings))
         self.pluto_page.chosen.connect(self.pluto_chosen)
         self.about_page.back.connect(lambda: self.pages.setCurrentWidget(self.settings))
-        self.about_page.quit.connect(self.close)
         self.pages.addWidget(self.settings)
         self.bands_page = BandsPage(bands.BANDS, "DATVision by HB9IIU · " + LICENCE + " Credits: ⚙ → ABOUT.")
         self.pages.addWidget(self.bands_page)
