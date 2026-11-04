@@ -15,5 +15,6 @@
     <Compile Include="../../ui/DatvRx.Player/FrequencyConversion.cs" Link="FrequencyConversion.cs" />
     <Compile Include="../../ui/DatvRx.Player/LnbCalibration.cs" Link="LnbCalibration.cs" />
     <Compile Include="../../ui/DatvRx.Player/LocalSweep.cs" Link="LocalSweep.cs" />
+    <Compile Include="../../ui/DatvRx.Player/PlutoChoice.cs" Link="PlutoChoice.cs" />
   </ItemGroup>
 </Project>
