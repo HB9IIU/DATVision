@@ -540,7 +540,7 @@ class Player(QMainWindow):
 
     def show_placeholder(self, text, color=DIM):
         self.placeholder.setText(text)
-        self.placeholder.setStyleSheet("background: black; color: %s; font-size: %dpx; font-weight: 600;" % (color, px(30)))
+        self.placeholder.setStyleSheet("background: black; color: %s; font-size: %dpx; font-weight: normal;" % (color, px(30)))
         self.video_stack.setCurrentWidget(self.placeholder)
 
     def show_problem(self, message, state, wait_for_stick, color=RED):
