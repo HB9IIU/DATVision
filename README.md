@@ -18,7 +18,7 @@ operated with a finger, and on **Windows**.
   on the network: found automatically and chosen in Settings.
 - **QO-100** through the LNB, with the BATC web spectrum or a local scan by the
   stick itself, and LNB calibration on the beacon.
-- **Terrestrial bands**: 4 m, 2 m, 70 cm, 23 cm, and 6 cm through a downconverter.
+- **Terrestrial bands**: 10 m, 6 m, 4 m, 2 m, 70 cm, 23 cm, 13 cm, and 6 cm through a downconverter.
 - **Tap a signal to tune**: carrier and symbol rate are found automatically.
 - Reception quality as Es/N0 and the MiniTioune-style **D margin**, with an
   animated **magic eye** or the live **constellation**.
