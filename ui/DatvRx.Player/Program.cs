@@ -17,6 +17,15 @@ internal static class Program
             Environment.ExitCode = missing.Length == 0 ? 0 : 1;
             return;
         }
+        if (args.Contains("--diagnostics"))
+        {
+            // DATVision.exe --diagnostics: the same report as About > Save diagnostics, without opening the window.
+            string folder = args.Length > 0 && !args[0].StartsWith("--") ? Path.GetFullPath(args[0]) : FindRoot();
+            string report = DiagnosticsReport.Save(folder, null);
+            Console.WriteLine(report);
+            MessageBox.Show($"Saved on your desktop:\n{Path.GetFileName(report)}\n\nRead it, then attach it to your message.", "DATVision diagnostics");
+            return;
+        }
         using var singleInstance = new Mutex(true, "HB9IIU.DatvRx.Player", out bool first);
         if (!first)
         {

@@ -62,7 +62,7 @@ zooms in, the second tunes.
 | Band | Reception |
 | --- | --- |
 | QO-100 | via the LNB, BATC or local spectrum |
-| 4 m, 2 m, 70 cm, 23 cm A/B | direct from the antenna (IARU Region 1 ATV segments) |
+| 10 m, 6 m, 4 m, 2 m, 70 cm, 23 cm A/B, 13 cm | direct from the antenna (IARU Region 1 ATV segments). An ADALM-Pluto tunes from 47 MHz, so 10 m needs the RTL-SDR stick. |
 | 6 cm | via a downconverter: RX5808 (LO 5200 MHz) or DG0VE KON-DWN-5560 (LO 5000, 4700 or 4600 MHz), chosen in Settings |
 
 On terrestrial and converter bands the column shows the RF gain with − and +.
@@ -147,3 +147,12 @@ Symbol rates above 1500 kS/s are not supported with an RTL-SDR stick.
 
 On a touchscreen, desktop icons need a double tap: the Raspberry Pi desktop is
 made for a mouse. DATVision starts by itself with the desktop anyway.
+
+## If something does not work
+
+Open **⚙ → ABOUT → SAVE DIAGNOSTICS**. A text report is saved in your home
+folder (`datvision-diagnostics-….txt`): the version, system, screen, sound and
+radio hardware, which programs are running, the video window state, the saved
+settings and the end of the logs. IP and MAC addresses, the host name and the
+user name are removed. Nothing is sent anywhere: read the file, then attach it
+to your message. From a terminal: `bash scripts/linux/diagnose.sh`.

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 
 namespace DatvRx.Player;
 
@@ -268,6 +269,79 @@ public sealed class TuningEye : Control
         Radial(g,0,0,size*.065f,Color.FromArgb(190,255,255,255),Color.FromArgb(0,255,255,255)); g.Restore(saved);
         using var reflection=new Pen(Color.FromArgb(34,255,255,255),size*.012f) { StartCap=LineCap.Round,EndCap=LineCap.Round };
         g.DrawArc(reflection,cx-size*.42f,cy-size*.42f,size*.84f,size*.84f,15,55);
+    }
+}
+
+// CPU load as a small two-colour bar sampled once a second: the whole PC in blue-grey, DATVision's own share (the player plus the
+// receiver, SDR and video processes it starts) in green on top of it. The text reads "DATVision · PC".
+public sealed class CpuMeter : Control
+{
+    [StructLayout(LayoutKind.Sequential)] private struct FileTime { public uint Low, High; public ulong Value => ((ulong)High << 32) | Low; }
+    [DllImport("kernel32.dll")] private static extern bool GetSystemTimes(out FileTime idle, out FileTime kernel, out FileTime user);
+    private static readonly string[] ProcessNames = ["DatvRx.Player", "datvrx", "rtl_iq", "rtl_sweep", "pluto_iq", "pluto_sweep", "ffplay"];
+    private readonly System.Windows.Forms.Timer _timer = new() { Interval = 1000 };
+    private readonly ToolTip _tip = new();
+    private readonly Dictionary<int, TimeSpan> _cpu = [];
+    private DateTime _last = DateTime.UtcNow;
+    private ulong _idle, _total;
+    private double _load = -1, _pc = -1;
+    public CpuMeter()
+    {
+        DoubleBuffered = true; Font = new Font("Segoe UI", 8); ForeColor = MonitorColors.Dim; Margin = Padding.Empty;
+        Sample();
+        _timer.Tick += (_, _) => { Sample(); _tip.SetToolTip(this, _pc < 0 ? "CPU used by DATVision" : $"CPU: cyan = DATVision ({_load * 100:0}%), amber = whole PC ({_pc * 100:0}%)"); Invalidate(); };
+        _timer.Start();
+    }
+    private void Sample()
+    {
+        if (GetSystemTimes(out var idle, out var kernel, out var user))
+        {
+            ulong total = kernel.Value + user.Value, i = idle.Value;   // kernel time includes idle
+            if (_total != 0 && total > _total) _pc = Math.Clamp(1.0 - (double)(i - _idle) / (total - _total), 0, 1);
+            _idle = i; _total = total;
+        }
+        var now = DateTime.UtcNow; double wall = (now - _last).TotalSeconds; _last = now;
+        var seen = new Dictionary<int, TimeSpan>(); double used = 0; bool known = false;
+        foreach (var name in ProcessNames)
+            foreach (var process in System.Diagnostics.Process.GetProcessesByName(name))
+                using (process)
+                {
+                    try
+                    {
+                        var time = process.TotalProcessorTime; seen[process.Id] = time;
+                        if (_cpu.TryGetValue(process.Id, out var before)) { used += (time - before).TotalSeconds; known = true; }
+                    }
+                    catch (Exception) { }   // a process that just ended or cannot be read
+                }
+        _cpu.Clear(); foreach (var pair in seen) _cpu[pair.Key] = pair.Value;
+        if (known && wall > 0) _load = Math.Clamp(used / (wall * Environment.ProcessorCount), 0, 1);
+    }
+    protected override void Dispose(bool disposing) { if (disposing) { _timer.Dispose(); _tip.Dispose(); } base.Dispose(disposing); }
+    private static readonly Color AppColor = Color.FromArgb(56, 189, 216), TotalColor = Color.FromArgb(255, 189, 69);
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics; g.Clear(BackColor);
+        // Top line "CPU      App 6%  Total 43%", underneath one bar: the whole PC in amber, DATVision's own share in cyan at the left.
+        double pc = Math.Max(_pc, _load), own = Math.Min(Math.Max(_load, 0), pc);
+        int barHeight = Math.Max(5, DeviceDpi * 6 / 96), textHeight = Height - barHeight - 3;
+        var flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix;
+        using var bold = new Font(Font, FontStyle.Bold);
+        int right = Width;
+        void Part(string text, Font font, Color color)   // drawn leftwards from the right edge
+        {
+            int width = TextRenderer.MeasureText(g, text, font, Size.Empty, flags).Width;
+            right -= width; TextRenderer.DrawText(g, text, font, new Rectangle(right, 0, width, textHeight), color, flags | TextFormatFlags.VerticalCenter);
+        }
+        bool known = _pc >= 0 || _load >= 0;
+        Part(known ? $"{pc * 100:0}%" : "—", bold, pc < 0.85 ? TotalColor : MonitorColors.Red); Part("Total ", Font, Color.FromArgb(200, 150, 60));
+        right -= 8;
+        Part(known ? $"{own * 100:0}%" : "—", bold, AppColor); Part("App ", Font, Color.FromArgb(60, 140, 160));
+        TextRenderer.DrawText(g, "CPU", Font, new Rectangle(0, 0, Math.Max(0, right), textHeight), ForeColor, flags | TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+        int y = Height - barHeight;
+        using var track = new SolidBrush(Color.FromArgb(27, 49, 64));
+        g.FillRectangle(track, 0, y, Width, barHeight);
+        if (pc > 0) { using var total = new SolidBrush(pc < 0.85 ? TotalColor : MonitorColors.Red); g.FillRectangle(total, 0, y, (float)pc * Width, barHeight); }
+        if (own > 0) { using var mine = new SolidBrush(AppColor); g.FillRectangle(mine, 0, y, Math.Max(2f, (float)own * Width), barHeight); }
     }
 }
 

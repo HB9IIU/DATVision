@@ -16,7 +16,7 @@ import time
 import traceback
 import urllib.request
 
-from PyQt5.QtCore import Qt, QTimer, QEvent, QObject, QRectF, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, QEvent, QObject, QProcess, QRectF, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QKeySequence, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QShortcut, QMessageBox, QFrame, QStackedLayout, QStackedWidget, QSplashScreen)
@@ -319,10 +319,12 @@ class Player(QMainWindow):
         self.pluto_page.back.connect(lambda: self.pages.setCurrentWidget(self.settings))
         self.pluto_page.chosen.connect(self.pluto_chosen)
         self.about_page.back.connect(lambda: self.pages.setCurrentWidget(self.settings))
+        self.about_page.diagnose.connect(self.save_diagnostics)
         self.pages.addWidget(self.settings)
         self.bands_page = BandsPage(bands.BANDS, "DATVision by HB9IIU · " + LICENCE + " Credits: ⚙ → ABOUT.")
         self.pages.addWidget(self.bands_page)
         self.bands_page.chosen.connect(self.choose_band)
+        self.bands_page.set_receiver(self.device == "pluto")
         self.bands_page.quit.connect(self.close)
         self.recordings_page = RecordingsPage()
         self.pages.addWidget(self.recordings_page)
@@ -908,6 +910,28 @@ class Player(QMainWindow):
                            self.saved_pluto())
         self.pages.setCurrentWidget(self.settings)
 
+    def save_diagnostics(self):
+        """SAVE DIAGNOSTICS on the About page: scripts/linux/diagnose.sh writes a report into the home folder."""
+        script = self.root / "scripts/linux/diagnose.sh"
+        if not script.exists():
+            self.about_page.show_diagnostics("Diagnostics script not found")
+            return
+        self.about_page.show_diagnostics("Collecting diagnostics, a few seconds...")
+        process = QProcess(self)
+
+        def done(*_):
+            lines = bytes(process.readAllStandardOutput()).decode(errors="replace").strip().splitlines()
+            path = lines[-1] if lines else ""
+            if path.endswith(".txt"):
+                shown = path.replace(str(Path.home()), "~")
+                self.about_page.show_diagnostics("Saved %s  ·  read it, then attach it to your message" % shown)
+                print("DIAGNOSTICS: " + path, flush=True)
+            else:
+                self.about_page.show_diagnostics("Diagnostics could not be saved")
+            process.deleteLater()
+        process.finished.connect(done)
+        process.start("bash", [str(script)])
+
     def close_settings(self):
         self.pages.setCurrentIndex(0)
         chosen = self.settings.pluto_uri or self.pluto_uri
@@ -939,8 +963,17 @@ class Player(QMainWindow):
         if self.band.converter_los:
             self.los[self.band.key] = lo
         self.spectrum.receiver = "PLUTO" if self.device == "pluto" else "RTL-SDR"
+        self.bands_page.set_receiver(self.device == "pluto")
         if device_changed:
             print("DEVICE: " + self.device, flush=True)
+            if self.device == "pluto" and not self.band.pluto_ok():
+                self.band = bands.BY_KEY["qo100"]   # the Pluto cannot tune this band: back to QO-100
+                self.zoom = None
+                self.last_signal = Signal(self.band.beacon_mhz, 1500)
+                self.controls.show_band(self.band)
+                self.controls.show_gain(self.gain_db)
+                self.spectrum.set_band(self.band)
+                self.bands_page.show_current(self.band.key)
             self.save_settings()
             self.stop(scan=False)
             self.sweeper.stop()
@@ -1184,7 +1217,7 @@ def main():
              for flag in ("--preview", "--window") if flag in sys.argv[:-1]}
     preview, window = sizes.get("--preview"), sizes.get("--window")
     if preview:
-        globals()["stick_present"] = lambda: True
+        globals()["stick_present"] = lambda *args: True
     size = app.primaryScreen().size()
     ui_scale.set_for(*(preview or window or (size.width(), size.height())))
     font = QFont("DejaVu Sans")

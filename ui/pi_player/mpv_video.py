@@ -24,6 +24,34 @@ def killed_with_player():
     ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGKILL)   # PR_SET_PDEATHSIG
 
 
+_x11 = None
+
+
+def _x11_connection():
+    """libX11 with a connection of its own, to show mpv's window again (see MpvVideo.show_window)."""
+    global _x11
+    if _x11 is None:
+        try:
+            lib = ctypes.CDLL("libX11.so.6")
+            lib.XOpenDisplay.restype = ctypes.c_void_p
+            lib.XOpenDisplay.argtypes = [ctypes.c_char_p]
+            lib.XQueryTree.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+                                       ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.POINTER(ctypes.c_ulong)),
+                                       ctypes.POINTER(ctypes.c_uint)]
+            lib.XMapWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+            lib.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            lib.XFree.argtypes = [ctypes.c_void_p]
+            lib.XSetErrorHandler.restype = ctypes.c_void_p
+            lib.XSetErrorHandler.argtypes = [ctypes.c_void_p]
+            # A window that disappears while we look must not end the player: Xlib's default handler exits.
+            ignore = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)(lambda display, event: 0)
+            display = lib.XOpenDisplay(None)
+            _x11 = (lib, display, ignore) if display else False
+        except OSError:
+            _x11 = False
+    return _x11
+
+
 class MpvVideo:
     def __init__(self, window_id, log_path, max_fps=None):
         self.window_id = int(window_id)
@@ -93,6 +121,27 @@ class MpvVideo:
             return 0, 0
         return self.request("get_property", "width") or 0, self.request("get_property", "height") or 0
 
+    def show_window(self):
+        """Show mpv's window again if it is hidden. On the Pi's desktop (Xwayland) mpv's window
+        sometimes ends up unmapped while mpv keeps decoding and playing: the sound goes on and
+        the video area stays black. Mapping a window that is already shown changes nothing."""
+        connection = _x11_connection()
+        if not connection:
+            return
+        lib, display, ignore = connection
+        previous = lib.XSetErrorHandler(ctypes.cast(ignore, ctypes.c_void_p))
+        try:
+            root, parent, count = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_uint()
+            children = ctypes.POINTER(ctypes.c_ulong)()
+            if lib.XQueryTree(display, self.window_id, ctypes.byref(root), ctypes.byref(parent), ctypes.byref(children), ctypes.byref(count)):
+                for index in range(count.value):
+                    lib.XMapWindow(display, children[index])
+                if children:
+                    lib.XFree(ctypes.cast(children, ctypes.c_void_p))
+            lib.XSync(display, 0)
+        finally:
+            lib.XSetErrorHandler(previous)
+
     def has_picture(self):
         return all(self.size())
 
@@ -103,6 +152,8 @@ class MpvVideo:
         frames = self.request("get_property", "estimated-frame-number")
         if frames is None:
             return None
+        if frames > 0:
+            self.show_window()   # the picture is there: make sure its window is shown
         dropped = (self.request("get_property", "frame-drop-count") or 0) + \
                   (self.request("get_property", "decoder-frame-drop-count") or 0)
         return frames, max(0, frames - dropped), dropped

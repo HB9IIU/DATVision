@@ -1,11 +1,12 @@
 """Touch panels beside the video and the full-screen settings page. GPL-3.0-or-later."""
 import math
+import os
 import time
 from PyQt5.QtCore import Qt, pyqtSignal, QPointF, QRectF, QSize, QTimer
-from PyQt5.QtGui import QColor, QFontMetrics, QIcon, QPainter, QPen, QPixmap, QPolygonF
+from PyQt5.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PyQt5.QtNetwork import QTcpSocket
 from PyQt5.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QSizePolicy,
-                             QStackedWidget, QScrollArea, QScroller)
+                             QStackedWidget, QScrollArea, QScroller, QGraphicsOpacityEffect)
 from magic_eye import MagicEye
 import calibration
 from ui_scale import px, style
@@ -46,6 +47,109 @@ def button(layout, text, signal, role=""):
     if layout is not None:
         layout.addWidget(widget)
     return widget
+
+
+class CpuMeter(QWidget):
+    """CPU load as one small bar: the whole Pi in amber, DATVision's own share (this
+    program and the receiver, SDR and video processes it starts) in cyan on top of it.
+    Read from /proc once a second."""
+    APP, TOTAL = "#38bdd8", "#ffbd45"
+
+    def __init__(self):
+        super().__init__()
+        self.setFixedHeight(px(21))
+        self.pc = self.app = None
+        self.system = self.trees = self.when = None
+        self.ticks = os.sysconf("SC_CLK_TCK")
+        self.cores = os.cpu_count() or 1
+        self.sample()
+        timer = QTimer(self)
+        timer.timeout.connect(self.sample)
+        timer.start(1000)
+
+    @staticmethod
+    def system_times():
+        with open("/proc/stat") as stat:
+            fields = [int(value) for value in stat.readline().split()[1:]]
+        return fields[3] + fields[4], sum(fields)   # idle + iowait, everything
+
+    def tree_times(self):
+        """{pid: CPU ticks used} for this process and everything it started."""
+        parents, used = {}, {}
+        for name in os.listdir("/proc"):
+            if not name.isdigit():
+                continue
+            try:
+                with open("/proc/%s/stat" % name) as stat:
+                    rest = stat.read().rsplit(")", 1)[1].split()   # the name may hold spaces and brackets
+                parents[int(name)] = int(rest[1])
+                used[int(name)] = int(rest[11]) + int(rest[12])
+            except (OSError, IndexError, ValueError):
+                continue   # it ended while we looked
+        mine = {os.getpid()}
+        grew = True
+        while grew:
+            grew = False
+            for pid, parent in parents.items():
+                if parent in mine and pid not in mine:
+                    mine.add(pid)
+                    grew = True
+        return {pid: used[pid] for pid in mine if pid in used}
+
+    def sample(self):
+        try:
+            system, trees, now = self.system_times(), self.tree_times(), time.monotonic()
+        except OSError:
+            return
+        if self.system is not None and now > self.when:
+            idle, total = system[0] - self.system[0], system[1] - self.system[1]
+            if total > 0:
+                self.pc = max(0.0, min(1.0, 1.0 - idle / total))
+            ours = sum(max(0, ticks - self.trees[pid]) for pid, ticks in trees.items() if pid in self.trees)
+            self.app = max(0.0, min(1.0, ours / ((now - self.when) * self.ticks * self.cores)))
+        self.system, self.trees, self.when = system, trees, now
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        known = self.pc is not None and self.app is not None
+        pc = max(self.pc or 0, self.app or 0)
+        own = min(self.app or 0, pc)
+        width = self.width()
+        small = QFont(painter.font())
+        small.setPixelSize(px(11))
+        bold = QFont(small)
+        bold.setBold(True)
+        tiny = QFont(small)
+        tiny.setPixelSize(px(9))
+        line = px(12)
+        total_color = self.TOTAL if pc < 0.85 else RED
+        own_text = "%d%%" % round(own * 100) if known else "—"
+        total_text = "%d%%" % round(pc * 100) if known else "—"
+        # First line: "App 6%" in cyan on the left, "Total 43%" in amber on the right
+        painter.setFont(small)
+        painter.setPen(QColor("#3c8ca0"))
+        painter.drawText(QRectF(0, 0, width, line), Qt.AlignLeft | Qt.AlignVCenter, "App ")
+        painter.setFont(bold)
+        painter.setPen(QColor(self.APP))
+        painter.drawText(QRectF(QFontMetrics(small).horizontalAdvance("App "), 0, width, line), Qt.AlignLeft | Qt.AlignVCenter, own_text)
+        painter.setPen(QColor(total_color))
+        painter.drawText(QRectF(0, 0, width, line), Qt.AlignRight | Qt.AlignVCenter, total_text)
+        painter.setFont(small)
+        painter.setPen(QColor("#c8963c"))
+        painter.drawText(QRectF(0, 0, width - QFontMetrics(bold).horizontalAdvance(total_text), line), Qt.AlignRight | Qt.AlignVCenter, "Total ")
+        # Second line: the label and one bar, the whole Pi in amber with DATVision's share in cyan at the left
+        label_width = px(24)
+        top, bar = line + px(1), px(8)
+        painter.setFont(tiny)
+        painter.setPen(QColor("#91a7ba"))
+        painter.drawText(QRectF(0, top, label_width, bar), Qt.AlignLeft | Qt.AlignVCenter, "CPU")
+        span = width - label_width
+        painter.fillRect(label_width, top, span, bar, QColor("#1b3140"))
+        if pc > 0:
+            painter.fillRect(label_width, top, round(pc * span), bar, QColor(total_color))
+        if own > 0:
+            painter.fillRect(label_width, top, max(2, round(own * span)), bar, QColor(self.APP))
 
 
 class QualityBar(QWidget):
@@ -89,7 +193,7 @@ class Constellation(QWidget):
         self.points = []
         self.modulation = ""
         self.received = 0
-        self.setFixedSize(px(120), px(120))
+        self.setFixedSize(px(100), px(100))
 
     def set_points(self, hex_text, modulation):
         raw = bytes.fromhex(hex_text)
@@ -154,13 +258,15 @@ class InfoPanel(QFrame):
         self.audio = label(layout, "value")
         self.errors = label(layout, "caption")
         layout.addStretch()
+        layout.addWidget(CpuMeter())
+        layout.addStretch()
         self.note = label(layout, "caption")
         self.note.setWordWrap(True)
         # Tap to alternate between the magic eye and the constellation.
-        self.eye = MagicEye(px(120))
+        self.eye = MagicEye(px(100))
         self.constellation = Constellation()
         self.indicator = QStackedWidget()
-        self.indicator.setFixedSize(px(120), px(120))
+        self.indicator.setFixedSize(px(100), px(100))
         for widget in (self.eye, self.constellation):
             self.indicator.addWidget(widget)
             widget.tapped.connect(self.toggle_indicator)
@@ -387,7 +493,6 @@ class ControlPanel(QFrame):
         self.record_button = button(layout, "● REC", self.record)
         button(layout, "▶ PLAY", self.replay)
         self.show_recording(False, False)
-        layout.addStretch()
         button(layout, "BANDS", self.bands)   # full video: tap the picture
         # Settings and quit as symbols, one above the other; quit asks for a second tap.
         self.settings_button = button(layout, "", self.settings)
@@ -395,6 +500,7 @@ class ControlPanel(QFrame):
         self.quit_button = QPushButton(objectName="danger")
         self.quit_button.setFocusPolicy(Qt.NoFocus)
         self.quit_button.clicked.connect(self.quit_tapped)
+        layout.addStretch()   # quit stands apart from the other buttons
         layout.addWidget(self.quit_button)
         self.quit_timer = QTimer(self)
         self.quit_timer.setSingleShot(True)
@@ -469,6 +575,7 @@ class BandsPage(QWidget):
     def __init__(self, bands, credits):
         super().__init__(objectName="settings")
         self.current = bands[0].key
+        self.bands = bands
         layout = QVBoxLayout(self)
         layout.setContentsMargins(px(24), px(16), px(24), px(16))
         layout.setSpacing(px(14))
@@ -500,7 +607,7 @@ class BandsPage(QWidget):
                 line.setAttribute(Qt.WA_TransparentForMouseEvents)
             lines.addStretch()
             widget.clicked.connect(lambda _, key=band.key: self.chosen.emit(key))
-            grid.addWidget(widget, index // 3, index % 3)
+            grid.addWidget(widget, index // 4, index % 4)   # four across: ten bands stay in three rows, as seven did before
             self.buttons[band.key] = widget
         layout.addLayout(grid)
         layout.addStretch()
@@ -510,6 +617,19 @@ class BandsPage(QWidget):
         bottom.addWidget(about, 1)
         button(bottom, "QUIT TO\nDESKTOP", self.quit, "danger").setFixedSize(px(170), px(64))
         layout.addLayout(bottom)
+
+    def set_receiver(self, pluto):
+        """A Pluto cannot tune the HF bands: grey those out while it is the receiver."""
+        for band in self.bands:
+            usable = band.pluto_ok() or not pluto
+            widget = self.buttons[band.key]
+            widget.setEnabled(usable)
+            if usable:
+                widget.setGraphicsEffect(None)
+            else:
+                dim = QGraphicsOpacityEffect(widget)   # the tile's labels are children: dim the whole tile
+                dim.setOpacity(0.3)
+                widget.setGraphicsEffect(dim)
 
     def show_current(self, key):
         self.current = key
@@ -743,6 +863,7 @@ class PlutoPage(QWidget):
 
 class AboutPage(QWidget):
     back = pyqtSignal()
+    diagnose = pyqtSignal()   # save a diagnostics report to help with a problem
 
     def __init__(self, credits, licence, version, wordmark=None):
         super().__init__(objectName="about")
@@ -758,6 +879,7 @@ class AboutPage(QWidget):
         top = QHBoxLayout()
         label(top, "title", "About")
         top.addStretch()
+        button(top, "SAVE"+chr(10)+"DIAGNOSTICS", self.diagnose).setFixedSize(px(190), px(60))
         button(top, "BACK", self.back).setFixedSize(px(150), px(60))
         layout.addLayout(top)
         logo = QPixmap(str(wordmark)) if wordmark else QPixmap()
@@ -801,6 +923,11 @@ class AboutPage(QWidget):
 
     def show_update(self, latest):
         self.update_note.setText("Update available: DATVision %s  ·  github.com/HB9IIU/DATVision" % latest)
+        self.update_note.show()
+
+    def show_diagnostics(self, text):
+        """The result of SAVE DIAGNOSTICS, in the place of the update note."""
+        self.update_note.setText(text)
         self.update_note.show()
 
     def show_h266(self, available):

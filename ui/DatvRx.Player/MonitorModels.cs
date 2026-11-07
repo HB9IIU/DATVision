@@ -7,10 +7,15 @@ public sealed record ReceiveBand(string Key, string Name, double StartMhz, doubl
 {
     public static readonly ReceiveBand[] Presets = [
         new("qo100", "QO-100", 10490.5, 10499.5, 9750, 10491.5),
-        new("4m", "4 m", 70.5, 71.5, 0), new("2m", "2 m", 146, 147, 0),
-        new("70cm", "70 cm", 435, 439, 0), new("23a", "23 cm A", 1243, 1260, 0),
-        new("23b", "23 cm B", 1272, 1291, 0), new("6cm", "6 cm / 5200 LO", 5690, 5720, 5200)
+        new("10m", "10 m", 28, 30, 0), new("6m", "6 m", 50, 52, 0),
+        new("4m", "4 m", 70.5, 71.5, 0), new("2m", "2 m", 144, 147, 0),
+        new("70cm", "70 cm", 435, 439, 0), new("23a", "23 cm A", 1243, 1275, 0),
+        new("23b", "23 cm B", 1272, 1291, 0), new("13cm", "13 cm", 2330, 2360, 0),
+        new("6cm", "6 cm / 5200 LO", 5690, 5720, 5200)
     ];
+
+    // The receivers' tuning range (see LocalReceiver.Validate): the stick from 24 MHz, the Pluto from 47 MHz, measured after any converter.
+    public bool SupportedBy(bool pluto) => Math.Abs(StartMhz - LoMhz) >= (pluto ? 47 : 24);
 }
 
 public sealed record MonitorFrame(double StartMhz, double EndMhz, float[] Values, bool Local);

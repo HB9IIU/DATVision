@@ -38,8 +38,10 @@ Local scanning and decoding share one stick. While watching a station the sweep
 is paused and dimmed; click it or press RESCAN to scan again. Bands wider than
 10 MHz zoom to a 3 MHz window on the first click. Use Bands again to reset it.
 
-Band presets: QO-100 (9750 MHz LNB by default), 4 m, 2 m, 70 cm, 23 cm A/B,
-and 6 cm with a 5200 MHz converter preset. These are tuning presets; an antenna,
+Band presets: QO-100 (9750 MHz LNB by default), 10 m (28-30 MHz), 6 m (50-52 MHz), 4 m,
+2 m (144-147 MHz), 70 cm, 23 cm A/B, 13 cm (2330-2360 MHz), and 6 cm with a 5200 MHz
+converter preset. An ADALM-Pluto tunes from 47 MHz, so 10 m needs the RTL-SDR stick
+(it is greyed out in the band list while a Pluto is selected). These are tuning presets; an antenna,
 LNB or converter appropriate to the signal is required. Generic SDR support is
 not claimed: this first version uses librtlsdr / RTL-SDR-compatible sticks.
 
@@ -190,3 +192,12 @@ RTL-SDR still needs the Windows WinUSB driver. Do not copy user settings,
 recordings or logs into a public release. Store the extracted app in a writable
 folder. Preview builds are unsigned. `DATVision.exe --check-installation`
 reports the root and runtime directory as JSON without starting the receiver.
+
+## If something does not work
+
+Open **About → Save diagnostics**. A text report is saved on your desktop
+(`DATVision-diagnostics-….txt`): the version, Windows, screens and display
+scale, the program files, running programs, connected USB devices, the saved
+settings and the end of the logs. IP and MAC addresses, the computer name and
+the user name are removed. Nothing is sent anywhere: read the file, then attach
+it to your message. Without opening the window: `DATVision.exe --diagnostics`.

@@ -56,7 +56,8 @@ public sealed class MonitorWindow : Form
         _band = ReceiveBand.Presets[0]; _saved.Band = _band.Key; _saved.Source = "BATC";
         _receiver = new LocalReceiver(root) { UdpDestination = _saved.UdpEnabled ? _saved.UdpDestination : null, PlutoUri = _saved.Device == "Pluto" ? _saved.PlutoUri : null }; _sweep = new LocalSweep(root) { PlutoUri = _receiver.PlutoUri };
         _spectrum.Receiver = _receiver.PlutoUri != null ? "PLUTO" : "RTL-SDR";
-        Text = "DATVision · HB9IIU"; Icon = BrandAssets.Icon; Font = new Font("Segoe UI", 9);
+        AutoScaleDimensions = new SizeF(96F, 96F); AutoScaleMode = AutoScaleMode.Dpi; // pixel sizes follow Windows display scaling, like the fonts
+        Text = "DATVision " + Application.ProductVersion.Split('+')[0] + " · HB9IIU"; Icon = BrandAssets.Icon; Font = new Font("Segoe UI", 9);
         BackColor = MonitorColors.Background; ForeColor = MonitorColors.Text;
         ClientSize = new Size(1024, 600); FormBorderStyle = FormBorderStyle.FixedSingle; MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen; TopMost = _saved.TopMost;
@@ -233,17 +234,17 @@ public sealed class MonitorWindow : Form
 
     private Control BuildInformation()
     {
-        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = MonitorColors.Panel, ColumnCount = 1, RowCount = 10, Padding = new Padding(8), Margin = new Padding(0, 0, 6, 0) };
+        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = MonitorColors.Panel, ColumnCount = 1, RowCount = 11, Padding = new Padding(8), Margin = new Padding(0, 0, 6, 0) };
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         // Lift the quality block while keeping the media and eye positions stable.
-        int[] heights = [23, 24, 23, 21, 20, 34, 82, 44, 30];
+        int[] heights = [23, 24, 23, 21, 20, 34, 82, 44, 30, 34];
         foreach (int height in heights) panel.RowStyles.Add(new RowStyle(SizeType.Absolute, height)); panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var quality = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Margin = Padding.Empty };
         quality.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         quality.RowStyles.Add(new RowStyle(SizeType.Absolute, 15)); quality.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
         quality.RowStyles.Add(new RowStyle(SizeType.Absolute, 23)); quality.RowStyles.Add(new RowStyle(SizeType.Absolute, 8));
         quality.Controls.Add(_caption, 0, 0); quality.Controls.Add(_esn0, 0, 1); quality.Controls.Add(_margin, 0, 2); quality.Controls.Add(_gauge, 0, 3);
-        Control[] rows = [_state, _station, _provider, _frequency, _sr, _mode, quality, _media, _errors, _eye];
+        Control[] rows = [_state, _station, _provider, _frequency, _sr, _mode, quality, _media, _errors, new CpuMeter { Dock = DockStyle.Fill, BackColor = MonitorColors.Panel }, _eye];
         for (int i = 0; i < rows.Length; i++) panel.Controls.Add(rows[i], 0, i);
         return panel;
     }
@@ -258,7 +259,10 @@ public sealed class MonitorWindow : Form
         volume.Controls.Add(_minus); volume.Controls.Add(_plus);
         Control[] rows = [_sound, volume, _beacon, _recordButton, _playButton, _bands, _settings, _quit];
         for (int i = 0; i < rows.Length; i++) panel.Controls.Add(rows[i], 0, i);
-        _settings.Font = new Font("Segoe UI Symbol", 17); _quit.Font = new Font("Segoe UI Symbol", 18); _quit.ForeColor = MonitorColors.Red;
+        foreach (var b in new[] { _sound, _beacon, _recordButton, _playButton, _bands }) b.Font = new Font("Segoe UI", 12, FontStyle.Bold);
+        // A proper gear from the Windows icon font (Windows 10 and 11); the plain symbol if it is missing.
+        string gearFont = new[] { "Segoe Fluent Icons", "Segoe MDL2 Assets" }.FirstOrDefault(name => FontFamily.Families.Any(f => f.Name == name));
+        if (gearFont != null) { _settings.Text = ""; _settings.Font = new Font(gearFont, 20); _quit.Text = ""; _quit.Font = new Font(gearFont, 20); } else { _settings.Font = new Font("Segoe UI Symbol", 22); _quit.Font = new Font("Segoe UI Symbol", 22); } _quit.ForeColor = MonitorColors.Red;
         _tips.SetToolTip(_settings, "Settings and credits"); _tips.SetToolTip(_quit, "Quit DATVision");
         _tips.SetToolTip(_playButton, "Play a recording from the Record folder.");
         return panel;
@@ -413,14 +417,17 @@ public sealed class MonitorWindow : Form
     private async Task ChooseBandAsync()
     {
         if (_busy) return;
-        using var dialog = Dialog("Choose receiving band", 540, 365);
-        var tiles = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(12) };
+        using var dialog = Dialog("Choose receiving band", 540, 560);
+        var tiles = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 5, Padding = new Padding(12) };
         for (int i = 0; i < 2; i++) tiles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        for (int i = 0; i < 4; i++) tiles.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
+        for (int i = 0; i < 5; i++) tiles.RowStyles.Add(new RowStyle(SizeType.Percent, 20));
+        bool plutoSelected = _receiver.PlutoUri != null;
         ReceiveBand selected = null;
         foreach (var band in ReceiveBand.Presets)
         {
-            var tile = Button($"{band.Name}\n{band.StartMhz:0.0}–{band.EndMhz:0.0} MHz");
+            bool supported = band.SupportedBy(plutoSelected);   // the Pluto cannot tune the HF bands
+            var tile = Button($"{band.Name}\n{band.StartMhz:0.0}–{band.EndMhz:0.0} MHz" + (supported ? "" : "\nneeds the RTL-SDR"));
+            tile.Enabled = supported; tile.Font = new Font("Segoe UI", 11, FontStyle.Bold);
             tile.Click += (_, _) => { selected = band; dialog.DialogResult = DialogResult.OK; dialog.Close(); };
             tiles.Controls.Add(tile);
         }
@@ -485,7 +492,7 @@ public sealed class MonitorWindow : Form
         // ---- LNB oscillator
         var lo = new NumericUpDown { Dock = DockStyle.Fill, Minimum = 9000, Maximum = 11000, DecimalPlaces = 4, Increment = 0.0001m,
             Value = (decimal)(measuredLo ?? _saved.EffectiveLoMhz.Value), Font = new Font("Segoe UI", 18, FontStyle.Bold), TextAlign = HorizontalAlignment.Center,
-            BackColor = MonitorColors.Background, ForeColor = MonitorColors.Text, BorderStyle = BorderStyle.None };
+            BackColor = MonitorColors.Background, ForeColor = MonitorColors.Text, BorderStyle = BorderStyle.None, AutoSize = false, MinimumSize = Size.Empty, Margin = new Padding(0, 2, 0, 2) };
         _tips.SetToolTip(lo, "Total downconversion frequency, including combined downconverter and SDR frequency error.");
         var calibrate = Choice("RECALIBRATE ON BEACON"); calibrate.Enabled = _band.Key == "qo100" && !_recording;
         calibrate.Click += (_, _) => { dialog.DialogResult = DialogResult.Retry; dialog.Close(); };
@@ -612,6 +619,7 @@ public sealed class MonitorWindow : Form
             }
             _receiver.PlutoUri = _sweep.PlutoUri = pluto ? _saved.PlutoUri : null;
             _spectrum.Receiver = pluto ? "PLUTO" : "RTL-SDR";
+            if (!_band.SupportedBy(pluto)) { _band = ReceiveBand.Presets[0]; _saved.Band = _band.Key; _beacon.Enabled = true; }   // the Pluto cannot tune this band: back to QO-100
             SaveSettings(); dialog.DialogResult = DialogResult.OK; dialog.Close();
         };
         var outcome = ShowMonitorDialog(dialog);
@@ -667,7 +675,26 @@ public sealed class MonitorWindow : Form
         layout.Controls.Add(Line("Receivers: RTL-SDR (R820T, Blog V4)  ·  ADALM-Pluto and clones (PlutoSky / FISHBall)", 9.5f, MonitorColors.Dim), 0, 2);
         layout.Controls.Add(table, 0, 3);
         layout.Controls.Add(Line("GPL v3 · see LICENSE and the bundled third-party license notices.", 9, MonitorColors.Dim), 0, 4);
-        layout.Controls.Add(close, 0, 5);
+        // Save diagnostics: a text report on the desktop to attach to a message when something does not work.
+        var diagnose = Button("Save diagnostics"); diagnose.Margin = new Padding(0, 3, 6, 3);
+        close.Margin = new Padding(6, 3, 0, 3);
+        diagnose.Click += (_, _) =>
+        {
+            try
+            {
+                string path = DiagnosticsReport.Save(_root, this);
+                MessageBox.Show(dialog, $"Saved on your desktop:\n{Path.GetFileName(path)}\n\nRead it, then attach it to your message.", "Diagnostics");
+                try { Process.Start("explorer.exe", $"/select,\"{path}\""); } catch (Exception) { }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                MessageBox.Show(dialog, "The report could not be saved: " + ex.Message, "Diagnostics");
+            }
+        };
+        var buttons = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        buttons.Controls.Add(diagnose, 0, 0); buttons.Controls.Add(close, 1, 0);
+        layout.Controls.Add(buttons, 0, 5);
         dialog.Controls.Add(layout); ShowMonitorDialog(dialog, owner: owner);
     }
 
@@ -805,7 +832,7 @@ public sealed class MonitorWindow : Form
     private sealed class Settings { public bool UdpEnabled { get; set; } public string UdpDestination { get; set; } = UdpStreamAddress.Default; public int Volume { get; set; } = 30; public bool Muted { get; set; } public bool TopMost { get; set; } = true; public double Gain { get; set; } = 40.2; [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public double? LnbMhz { get; set; } [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public double? DownconverterLoMhz { get; set; } [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public double FrequencyCorrectionKhz { get; set; } public double? EffectiveLoMhz { get; set; } public string Source { get; set; } = "BATC"; public string Band { get; set; } = "qo100"; public string Device { get; set; } = "RTL"; public string PlutoUri { get; set; } public string PlutoName { get; set; } public string PlutoSerial { get; set; } public string PlutoAddress { get; set; } }
     private static Label Readout(string text, float size = 9, bool bold = false) => new() { Text = text, Dock = DockStyle.Fill, ForeColor = MonitorColors.Dim, BackColor = Color.Transparent, Font = new Font("Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular), AutoEllipsis = true, Margin = Padding.Empty };
     private static Button Button(string text) => new MonitorButton() { Text = text, Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat, FlatAppearance = { BorderColor = Color.FromArgb(41, 72, 92) }, BackColor = Color.FromArgb(27, 49, 64), ForeColor = MonitorColors.Text, Font = new Font("Segoe UI", 9, FontStyle.Bold), Cursor = Cursors.Hand, Margin = new Padding(3), TabStop = false };
-    private static Form Dialog(string title, int width, int height) => new() { Text = title, Icon = BrandAssets.Icon, ClientSize = new Size(width, height), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, BackColor = MonitorColors.Background, ForeColor = MonitorColors.Text, MinimizeBox = false, MaximizeBox = false };
+    private static Form Dialog(string title, int width, int height) => new() { AutoScaleDimensions = new SizeF(96F, 96F), AutoScaleMode = AutoScaleMode.Dpi, Text = title, Icon = BrandAssets.Icon, ClientSize = new Size(width, height), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, BackColor = MonitorColors.Background, ForeColor = MonitorColors.Text, MinimizeBox = false, MaximizeBox = false };
     [DllImport("user32.dll")] private static extern IntPtr SetParent(IntPtr child, IntPtr parent);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern IntPtr SetWindowLongPtr(IntPtr window, int index, IntPtr value);
