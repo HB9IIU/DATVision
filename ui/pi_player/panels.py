@@ -576,6 +576,7 @@ class BandsPage(QWidget):
         super().__init__(objectName="settings")
         self.current = bands[0].key
         self.bands = bands
+        self.source_lines = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(px(24), px(16), px(24), px(16))
         layout.setSpacing(px(14))
@@ -603,6 +604,8 @@ class BandsPage(QWidget):
                                ("via LNB" if band.via_lnb else "via converter" if band.converter_los else "direct antenna",
                                 "bandSource")):
                 line = label(lines, role, text)
+                if role == "bandSource":
+                    self.source_lines[band.key] = (line, text)   # set_receiver explains a greyed-out band here
                 line.setAlignment(Qt.AlignCenter)
                 line.setAttribute(Qt.WA_TransparentForMouseEvents)
             lines.addStretch()
@@ -619,11 +622,13 @@ class BandsPage(QWidget):
         layout.addLayout(bottom)
 
     def set_receiver(self, pluto):
-        """A Pluto cannot tune the HF bands: grey those out while it is the receiver."""
+        """Grey out the bands the chosen receiver cannot tune: the Pluto not the HF bands, the stick not 13 cm or 6 cm direct."""
         for band in self.bands:
-            usable = band.pluto_ok() or not pluto
+            usable = band.usable(pluto)
             widget = self.buttons[band.key]
             widget.setEnabled(usable)
+            line, text = self.source_lines[band.key]
+            line.setText(text if usable else "needs the RTL-SDR" if pluto else "needs the Pluto")
             if usable:
                 widget.setGraphicsEffect(None)
             else:

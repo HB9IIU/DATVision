@@ -35,7 +35,7 @@ internal static class Program
         string root = args.Length > 0 && !args[0].StartsWith("--") ? Path.GetFullPath(args[0]) : FindRoot();
         if (!File.Exists(Path.Combine(root, "build/windows/datvrx.exe")))
         {
-            MessageBox.Show("Build the receiver first using scripts/windows/build.ps1.", "RTL DATV");
+            MessageBox.Show("DATVision's program files are missing next to DATVision.exe (build\\windows\\datvrx.exe).\n\nExtract the whole zip again; an antivirus program may have removed them.\nFrom source: run scripts\\windows\\build.ps1 first.", "DATVision");
             return;
         }
         string recording = null;

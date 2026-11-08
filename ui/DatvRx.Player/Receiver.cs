@@ -167,7 +167,7 @@ public sealed class LocalReceiver : IReceiverBackend
 
     private Process Start(string executable, string[] arguments, bool input = false, bool output = false)
     {
-        if (!File.Exists(executable)) throw new FileNotFoundException("Required program not found", executable);
+        if (!File.Exists(executable)) throw new FileNotFoundException($"The program {Path.GetFileName(executable)} is missing from the DATVision folder. Extract the whole zip again; an antivirus program may have removed it.", executable);
         var info = new ProcessStartInfo(executable)
         {
             UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = _root,
@@ -260,7 +260,8 @@ public sealed class LocalReceiver : IReceiverBackend
                 .Where(process => process != null).Select(process => process.WaitForExitAsync(session.Stop.Token)));
             if (!session.Stop.IsCancellationRequested && _session == session)
             {
-                Status?.Invoke("Receiver pipeline stopped. Check the RTL-SDR connection or select a station to retry.");
+                Status?.Invoke(PlutoUri != null ? "Receiver pipeline stopped. Check the Pluto's power and cable, or reboot it, or select a station to retry."
+                    : "Receiver pipeline stopped. Check the RTL-SDR connection or select a station to retry.");
                 // Stop the whole owned pipeline if any stage fails.
                 session.Stop.Cancel();
                 StopRecording();

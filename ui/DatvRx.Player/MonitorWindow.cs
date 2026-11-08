@@ -17,8 +17,8 @@ public sealed class MonitorWindow : Form
     private readonly MonitorSpectrum _spectrum = new() { Dock = DockStyle.Fill };
     private readonly Panel _video = new() { Dock = DockStyle.Fill, BackColor = Color.Black };
     private readonly Label _placeholder = new() { Dock = DockStyle.Fill, ForeColor = MonitorColors.Text, BackColor = Color.Black,
-        TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI", 13, FontStyle.Bold), Text = "DATVision\n\nConnect an RTL-SDR to this PC\nthen press BEACON" };
-    private readonly Label _state = Readout("READY", 11, true), _station = Readout("RTL DATV", 12, true),
+        TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI", 13, FontStyle.Bold), Text = "DATVision\n\nStarting…" };
+    private readonly Label _state = Readout("READY", 11, true), _station = Readout("DATVision", 12, true),
         _provider = Readout("Standalone Windows SDR", 8), _frequency = Readout("— MHz"), _sr = Readout("— kS/s"),
         _mode = Readout(""), _esn0 = Readout("—", 19, true), _margin = Readout("D —", 10, true),
         _media = Readout(""), _errors = Readout(""), _caption = Readout("Es/N0 · dB", 8);
@@ -97,8 +97,12 @@ public sealed class MonitorWindow : Form
             if (line.StartsWith("Scanner ended") || line.Contains("No supported") || line.Contains("failed", StringComparison.OrdinalIgnoreCase))
             {
                 State("SDR NOT READY", MonitorColors.Amber); _scanning = false; _stop.Text = "START";
-                Placeholder("Connect an RTL-SDR to this PC\n\nPress BEACON to retry\n\n" + line);
-                _spectrum.Message = "Local SDR unavailable · connect stick and press BEACON"; _spectrum.Invalidate();
+                // The advice names the receiver that is chosen, and the way to retry that exists on this band:
+                // BEACON is only enabled where there is a beacon, but a click on the spectrum starts a scan on every band.
+                bool plutoInUse = _receiver.PlutoUri != null;
+                string retry = _band.BeaconMhz > 0 ? "press BEACON or click the spectrum" : "click the spectrum";
+                Placeholder((plutoInUse ? $"The Pluto is not responding\n\nCheck its power and cable, or reboot it,\nthen {retry} to try again\n\n" : $"Connect an RTL-SDR to this PC\n\nthen {retry} to try again\n\n") + line);
+                _spectrum.Message = plutoInUse ? $"Local SDR unavailable · check the Pluto, then {retry}" : $"Local SDR unavailable · connect the stick, then {retry}"; _spectrum.Invalidate();
             }
         });
         _batc.FrameReceived += values => Ui(() =>
@@ -340,8 +344,8 @@ public sealed class MonitorWindow : Form
         try
         {
             await EndReceptionAsync(); State("STOPPED", MonitorColors.Dim); _stop.Text = "START";
-            _spectrum.Tuned = null; _spectrum.Message = "Press Start to scan"; _spectrum.Invalidate();
-            Placeholder("Stopped\n\nPress BEACON to retry the band");
+            _spectrum.Tuned = null; _spectrum.Message = "Click the spectrum to scan"; _spectrum.Invalidate();
+            Placeholder("Stopped\n\nClick the spectrum to scan again");
         }
         finally { _busy = false; }
     }
@@ -411,22 +415,23 @@ public sealed class MonitorWindow : Form
         if (line.StartsWith("Radio:") || line.StartsWith("Receiver pipeline stopped") || line.StartsWith("Reception stopped"))
         {
             State("RECEIVER ERROR", MonitorColors.Red); _receiver.StopRecording(); ClearQuality(); _eye.Running = false; _current = null; _recording = false; _stop.Text = "START";
-            Placeholder("Receiver stopped\n\nCheck the RTL-SDR connection, then press BEACON or select a station\n\n" + line);
+            Placeholder((_receiver.PlutoUri != null ? "Receiver stopped\n\nCheck the Pluto's power and cable, or reboot it,\nthen click the spectrum to try again\n\n" : "Receiver stopped\n\nCheck the RTL-SDR connection,\nthen click the spectrum to try again\n\n") + line);
         }
     }
     private async Task ChooseBandAsync()
     {
         if (_busy) return;
         using var dialog = Dialog("Choose receiving band", 540, 560);
-        var tiles = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 5, Padding = new Padding(12) };
+        int rows = (ReceiveBand.Presets.Length + 1) / 2;
+        var tiles = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = rows, Padding = new Padding(12) };
         for (int i = 0; i < 2; i++) tiles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        for (int i = 0; i < 5; i++) tiles.RowStyles.Add(new RowStyle(SizeType.Percent, 20));
+        for (int i = 0; i < rows; i++) tiles.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / rows));
         bool plutoSelected = _receiver.PlutoUri != null;
         ReceiveBand selected = null;
         foreach (var band in ReceiveBand.Presets)
         {
-            bool supported = band.SupportedBy(plutoSelected);   // the Pluto cannot tune the HF bands
-            var tile = Button($"{band.Name}\n{band.StartMhz:0.0}–{band.EndMhz:0.0} MHz" + (supported ? "" : "\nneeds the RTL-SDR"));
+            bool supported = band.SupportedBy(plutoSelected);   // the Pluto cannot tune the HF bands, the stick cannot tune 13 cm or 6 cm direct
+            var tile = Button($"{band.Name}\n{band.StartMhz:0.0}–{band.EndMhz:0.0} MHz" + (supported ? "" : plutoSelected ? "\nneeds the RTL-SDR" : "\nneeds the Pluto"));
             tile.Enabled = supported; tile.Font = new Font("Segoe UI", 11, FontStyle.Bold);
             tile.Click += (_, _) => { selected = band; dialog.DialogResult = DialogResult.OK; dialog.Close(); };
             tiles.Controls.Add(tile);
@@ -497,7 +502,7 @@ public sealed class MonitorWindow : Form
         var calibrate = Choice("RECALIBRATE ON BEACON"); calibrate.Enabled = _band.Key == "qo100" && !_recording;
         calibrate.Click += (_, _) => { dialog.DialogResult = DialogResult.Retry; dialog.Close(); };
         var note = Text(calibrationNote ?? "", 9, color: calibrationNote == null ? MonitorColors.Dim : accentBorder);
-        var lnbCard = Card("LNB oscillator · MHz", [46, 46, 44], "Measured on the QO-100 beacon: five locks, deliberately detuned.", out _);
+        var lnbCard = Card("LNB oscillator · MHz", [46, 46, 62], "Measured on the QO-100 beacon: five locks, deliberately detuned.", out _);
         lnbCard.Controls.Add(lo, 0, 1); lnbCard.Controls.Add(calibrate, 0, 2); lnbCard.Controls.Add(note, 0, 3);
 
         // ---- Receiver: RTL-SDR stick (gain set here) or an ADALM-Pluto (automatic gain)
@@ -748,7 +753,7 @@ public sealed class MonitorWindow : Form
                 if (LnbCalibration.Summarize(estimates) is { } result)
                 {
                     measured = result.Mhz;
-                    note = $"Effective LO {result.Mhz:0.0000} MHz.\nSpread {result.SpreadKhz:0.0} kHz across {estimates.Count}/5 steps. Save applies; Cancel discards.";
+                    note = $"Effective LO {result.Mhz:0.0000} MHz.\nSpread {result.SpreadKhz:0.0} kHz across {estimates.Count}/5 steps.\nApply keeps it; Cancel discards.";
                 }
                 else note = "Calibration unreliable: fewer than 3 locks or spread above 5 kHz. Frequency settings unchanged.";
             }

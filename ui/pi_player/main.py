@@ -966,7 +966,7 @@ class Player(QMainWindow):
         self.bands_page.set_receiver(self.device == "pluto")
         if device_changed:
             print("DEVICE: " + self.device, flush=True)
-            if self.device == "pluto" and not self.band.pluto_ok():
+            if not self.band.usable(self.device == "pluto"):
                 self.band = bands.BY_KEY["qo100"]   # the Pluto cannot tune this band: back to QO-100
                 self.zoom = None
                 self.last_signal = Signal(self.band.beacon_mhz, 1500)

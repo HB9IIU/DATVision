@@ -42,7 +42,8 @@ public sealed class LocalSweep(string root)
         {
             while (await process.StandardError.ReadLineAsync() is { } line)
                 if (_process == process) Status?.Invoke(line);
-            if (_process == process) Status?.Invoke("Scanner ended. Connect an RTL-SDR to this PC, then press Start.");
+            if (_process == process) Status?.Invoke(PlutoUri != null ? "Scanner ended. Check the Pluto's power and cable, or reboot it."
+                : "Scanner ended. Check that the RTL-SDR is connected to this PC.");
         });
     }
     public static MonitorFrame Parse(string line, double lo)

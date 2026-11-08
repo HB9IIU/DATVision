@@ -62,8 +62,9 @@ zooms in, the second tunes.
 | Band | Reception |
 | --- | --- |
 | QO-100 | via the LNB, BATC or local spectrum |
-| 10 m, 6 m, 4 m, 2 m, 70 cm, 23 cm A/B, 13 cm | direct from the antenna (IARU Region 1 ATV segments). An ADALM-Pluto tunes from 47 MHz, so 10 m needs the RTL-SDR stick. |
-| 6 cm | via a downconverter: RX5808 (LO 5200 MHz) or DG0VE KON-DWN-5560 (LO 5000, 4700 or 4600 MHz), chosen in Settings |
+| 10 m, 6 m, 4 m, 2 m, 70 cm, 23 cm A/B | direct from the antenna (IARU Region 1 ATV segments). An ADALM-Pluto or FISHBall tunes from 47 MHz, so 10 m needs the RTL-SDR stick. |
+| 13 cm, 6 cm direct | direct from the antenna, with an ADALM-Pluto or FISHBall (the RTL-SDR stick tunes up to about 1.7 GHz only) |
+| 6 cm + LO | via a downconverter (for the RTL-SDR stick, or a Pluto): RX5808 (LO 5200 MHz) or DG0VE KON-DWN-5560 (LO 5000, 4700 or 4600 MHz), chosen in Settings |
 
 On terrestrial and converter bands the column shows the RF gain with − and +.
 

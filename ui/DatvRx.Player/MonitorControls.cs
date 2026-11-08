@@ -50,7 +50,7 @@ public sealed class MonitorSpectrum : Control
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool Paused { get; set; }
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public string Message { get; set; } = "Connect an RTL-SDR · press Start to scan";
+    public string Message { get; set; } = "";
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public string SourceLabel { get; set; } = "LOCAL";
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]

@@ -40,8 +40,9 @@ is paused and dimmed; click it or press RESCAN to scan again. Bands wider than
 
 Band presets: QO-100 (9750 MHz LNB by default), 10 m (28-30 MHz), 6 m (50-52 MHz), 4 m,
 2 m (144-147 MHz), 70 cm, 23 cm A/B, 13 cm (2330-2360 MHz), and 6 cm with a 5200 MHz
-converter preset. An ADALM-Pluto tunes from 47 MHz, so 10 m needs the RTL-SDR stick
-(it is greyed out in the band list while a Pluto is selected). These are tuning presets; an antenna,
+converter preset. A band the chosen receiver cannot tune is greyed out in the band list:
+an ADALM-Pluto tunes from 47 MHz, so 10 m needs the RTL-SDR stick; the stick tunes up to
+about 1.7 GHz, so 13 cm and 6 cm direct (no converter) need the Pluto. These are tuning presets; an antenna,
 LNB or converter appropriate to the signal is required. Generic SDR support is
 not claimed: this first version uses librtlsdr / RTL-SDR-compatible sticks.
 

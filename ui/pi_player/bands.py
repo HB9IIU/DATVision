@@ -9,7 +9,11 @@ be adjusted while testing. 23 cm follows the IARU Region 1 ATV segments
 """
 from dataclasses import dataclass
 
-PLUTO_MIN_MHZ = 47.0   # the lowest frequency an ADALM-Pluto tunes here
+# What each receiver tunes itself, after the LNB or a downconverter: the stick 24 MHz to 1766 MHz,
+# an ADALM-Pluto or FISHBall 47 MHz to 6 GHz. So the HF bands need the stick, 13 cm and 6 cm direct need the Pluto.
+PLUTO_MIN_MHZ, PLUTO_MAX_MHZ = 47.0, 6000.0
+RTL_MIN_MHZ, RTL_MAX_MHZ = 24.0, 1766.0
+QO100_LNB_MHZ = 9750.0
 
 
 @dataclass(frozen=True)
@@ -24,9 +28,15 @@ class Band:
     beacon_mhz: float = 0     # a known reference signal, 0 for none
     gain_db: float = 40.2     # starting RF gain; one of the tuner's steps
 
-    def pluto_ok(self):
-        """The Pluto tunes from 47 MHz: the HF bands need the RTL-SDR stick."""
-        return self.via_lnb or bool(self.converter_los) or self.start_mhz >= PLUTO_MIN_MHZ
+    def receiver_range(self):
+        """(lowest, highest) MHz the receiver itself has to tune for this band."""
+        shift = QO100_LNB_MHZ if self.via_lnb else self.converter_los[0] if self.converter_los else 0.0
+        return abs(self.start_mhz - shift), abs(self.end_mhz - shift)
+
+    def usable(self, pluto):
+        """Whether the chosen receiver (the Pluto, else the RTL-SDR stick) can tune this band."""
+        low, high = sorted(self.receiver_range())
+        return low >= (PLUTO_MIN_MHZ if pluto else RTL_MIN_MHZ) and high <= (PLUTO_MAX_MHZ if pluto else RTL_MAX_MHZ)
 
 
 BANDS = (
@@ -42,7 +52,8 @@ BANDS = (
     # 5.7 GHz through a downconverter (ON1AVO): the stick receives RF - LO. Activity
     # centres on 5705 MHz; IF 490-520 MHz with an RX5808 (LO 5200), 690-720 MHz with
     # a DG0VE KON-DWN-5560 at its standard 5000 MHz LO (4700 and 4600 selectable).
-    Band("6cm", "6 cm", 5690.0, 5720.0, gain_db=36.4, converter_los=(5200.0, 5000.0, 4700.0, 4600.0),
+    Band("6cm-direct", "6 cm direct", 5690.0, 5720.0, gain_db=36.4),   # a Pluto tunes 5.7 GHz itself
+    Band("6cm", "6 cm + LO", 5690.0, 5720.0, gain_db=36.4, converter_los=(5200.0, 5000.0, 4700.0, 4600.0),
          converter_names=("RX5808", "KON-DWN-5560", "KON-DWN-5560", "KON-DWN-5560")),
 )
 BY_KEY = {band.key: band for band in BANDS}
