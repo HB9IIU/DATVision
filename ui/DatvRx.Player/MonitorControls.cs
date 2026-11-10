@@ -51,15 +51,73 @@ public sealed class MonitorSpectrum : Control
     public bool Paused { get; set; }
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public string Message { get; set; } = "";
+    // The local sweep is running (set by the window): shown as a blinking red "Continuous Scanning".
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool Sweeping
+    {
+        get => _sweeping;
+        set
+        {
+            if (_sweeping == value) return;
+            _sweeping = value;
+            if (value) _scanAnimation.Start(); else _scanAnimation.Stop();   // smooth movement while the first scan has no data yet
+            Invalidate();
+        }
+    }
+    private bool _sweeping;
+    private readonly System.Windows.Forms.Timer _scanAnimation = new() { Interval = 50 };
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public string SourceLabel { get; set; } = "LOCAL";
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public string Receiver { get; set; } = "RTL-SDR";   // which radio the data comes from
     public event Action<double> FrequencyClicked;
-    public MonitorSpectrum() { DoubleBuffered = true; Cursor = Cursors.Cross; SetStyle(ControlStyles.ResizeRedraw, true); }
+    public MonitorSpectrum()
+    {
+        DoubleBuffered = true; Cursor = Cursors.Cross; SetStyle(ControlStyles.ResizeRedraw, true);
+        _scanAnimation.Tick += (_, _) => { if (Visible && Frame == null) Invalidate(); };
+    }
+    protected override void Dispose(bool disposing) { if (disposing) _scanAnimation.Dispose(); base.Dispose(disposing); }
+    // Pan / zoom buttons, translucent in the top-left corner, on the bands that have them (ReceiveBand.Navigable).
+    public event Action<string> NavigationClicked;   // "out", "in", "full"
+    private List<(string Key, string Text, Rectangle Area)> NavigationButtons()
+    {
+        var list = new List<(string, string, Rectangle)>();
+        if (!Band.Navigable) return list;
+        float scale = DeviceDpi / 96f;
+        int height = (int)Math.Round(22 * scale), width = (int)Math.Round(30 * scale), gap = (int)Math.Round(4 * scale), x = gap, y = gap;
+        using var face = new Font(Font.FontFamily, Font.Size + 1, FontStyle.Bold);
+        string full = "FULL " + Band.Name + " Band";
+        foreach (var (key, text) in new[] { ("out", "–"), ("in", "+"), ("full", full) })
+        {
+            int w = key == "full" ? TextRenderer.MeasureText(text, face).Width + (int)Math.Round(14 * scale) : width;
+            list.Add((key, text, new Rectangle(x, y, w, height)));
+            x += w + gap;
+        }
+        return list;
+    }
+    // Hover readout (bands with the pan / zoom controls): a thin line under the mouse with its frequency, no button needed.
+    private int _hoverX = -1;
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        bool overButton = NavigationButtons().Any(b => b.Area.Contains(e.Location));
+        Cursor = overButton ? Cursors.Hand : Cursors.Cross;
+        int hover = overButton ? -1 : e.X;   // the hover frequency is shown on every band
+        if (hover != _hoverX) { _hoverX = hover; Invalidate(); }
+        base.OnMouseMove(e);
+    }
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        if (_hoverX >= 0) { _hoverX = -1; Invalidate(); }
+        base.OnMouseLeave(e);
+    }
     protected override void OnMouseDown(MouseEventArgs e)
     {
-        if (e.Button == MouseButtons.Left) FrequencyClicked?.Invoke(Band.StartMhz + e.X / (double)Math.Max(1, Width) * (Band.EndMhz - Band.StartMhz));
+        if (e.Button == MouseButtons.Left)
+        {
+            foreach (var button in NavigationButtons())
+                if (button.Area.Contains(e.Location)) { NavigationClicked?.Invoke(button.Key); base.OnMouseDown(e); return; }
+            FrequencyClicked?.Invoke(Band.StartMhz + e.X / (double)Math.Max(1, Width) * (Band.EndMhz - Band.StartMhz));
+        }
         base.OnMouseDown(e);
     }
     protected override void OnPaint(PaintEventArgs e)
@@ -122,8 +180,30 @@ public sealed class MonitorSpectrum : Control
             g.DrawString(stageLabel, Font, stageText, Math.Max(0, (Width - g.MeasureString(stageLabel, Font).Width) / 2), 0);
         }
         string source = Band.Name + " · " + SourceLabel + (SourceLabel == "REPLAY" ? "" : " · " + Receiver);
-        g.DrawString(source, Font, text, Math.Max(4, Width - g.MeasureString(source, Font).Width - 5), 0);
-        if (!string.IsNullOrWhiteSpace(Message))
+        float sourceLeft = Math.Max(4, Width - g.MeasureString(source, Font).Width - 5);
+        g.DrawString(source, Font, text, sourceLeft, 0);
+        if (Sweeping)
+        {
+            // Red, blinking, top centre: the scan repeats by itself until a station is tuned. Until the first picture of the band
+            // is there (the scanner reports a whole pass at a time, which takes a while on a wide band) a bar moves across the
+            // plot, so that it is clear that something is going on.
+            bool lit = Environment.TickCount64 % 1000 < 600;
+            using var red = new SolidBrush(lit ? Color.FromArgb(235, MonitorColors.Red) : Color.FromArgb(90, MonitorColors.Red));
+            using var title = new Font(Font.FontFamily, Font.Size * 1.15f, FontStyle.Regular);
+            using var topCentre = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Near };
+            g.DrawString("Continuous Scanning", title, red, new RectangleF(0, 1, Width, title.Height + 2), topCentre);
+            if (Frame == null)
+            {
+                float x = Environment.TickCount64 % 2500 / 2500f * Width;
+                using var trail = new LinearGradientBrush(new RectangleF(x - 80, top, 80, plot), Color.FromArgb(0, 255, 189, 69), Color.FromArgb(110, 255, 189, 69), 0f);
+                g.FillRectangle(trail, x - 80, top, 80, plot);
+                using var bar = new Pen(Color.FromArgb(230, 255, 189, 69), 2f);
+                g.DrawLine(bar, x, top, x, bottom);
+                using var dim = new SolidBrush(MonitorColors.Dim);
+                g.DrawString("first scan in progress…", Font, dim, new RectangleF(0, title.Height + 4, Width, Font.Height + 2), topCentre);
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(Message) && !Sweeping)   // "Continuous Scanning" takes the place of the message
         {
             var size = g.MeasureString(Message, Font);
             using var box = new SolidBrush(Color.FromArgb(220, MonitorColors.Background));
@@ -132,6 +212,29 @@ public sealed class MonitorSpectrum : Control
             g.FillRectangle(box, left, 3, boxWidth, size.Height + 5);
             using var centered = new StringFormat { Alignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
             g.DrawString(Message, Font, text, new RectangleF(left + 5, 5, Math.Max(1, boxWidth - 10), size.Height + 2), centered);
+        }
+        if (_hoverX >= 0)
+        {
+            double mhz = Band.StartMhz + _hoverX / (double)Math.Max(1, Width) * (Band.EndMhz - Band.StartMhz);
+            string label = mhz.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture) + " MHz";
+            using var line = new Pen(Color.FromArgb(150, 255, 255, 255), 1f);
+            g.DrawLine(line, _hoverX, 0, _hoverX, Height - 22);
+            using var bold = new Font(Font.FontFamily, Font.Size + 1, FontStyle.Bold);
+            var size = g.MeasureString(label, bold);
+            float x = _hoverX + 8 + size.Width + 6 > Width ? _hoverX - 8 - size.Width - 6 : _hoverX + 8;   // flip to the left near the right edge
+            float y = (int)Math.Round(30 * DeviceDpi / 96f);   // below the buttons
+            using var back = new SolidBrush(Color.FromArgb(220, 5, 20, 29));
+            g.FillRectangle(back, x, y, size.Width + 6, size.Height + 2);
+            g.DrawString(label, bold, Brushes.White, x + 3, y + 1);
+        }
+        foreach (var button in NavigationButtons())
+        {
+            using var back = new SolidBrush(Color.FromArgb(165, 27, 49, 64));
+            using var rim = new Pen(Color.FromArgb(180, 83, 118, 140));
+            using var centred = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            using var face = new Font(Font.FontFamily, Font.Size + 1, FontStyle.Bold);
+            g.FillRectangle(back, button.Area); g.DrawRectangle(rim, button.Area);
+            g.DrawString(button.Text, face, Brushes.White, button.Area, centred);
         }
     }
 }
@@ -369,6 +472,9 @@ internal sealed class MonitorButton : Button
     // The chosen one of a pair (LOCAL / BATC, RTL-SDR / PLUTO, OFF / ON): drawn green.
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool Selected { get; set { field = value; Invalidate(); } }
+    // Optional smaller lines under the main text (a band tile: the name big, its frequencies below).
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public string Detail { get; set { field = value; Invalidate(); } }
 
     public MonitorButton()
     {
@@ -432,6 +538,19 @@ internal sealed class MonitorButton : Button
             int left = label.Left + (label.Width - iconWidth - gap - captionWidth) / 2;
             TextRenderer.DrawText(g, icon, iconFont, new Rectangle(left, label.Top, iconWidth, label.Height), textColor, flags);
             TextRenderer.DrawText(g, caption, Font, new Rectangle(left + iconWidth + gap, label.Top, captionWidth, label.Height), textColor, flags);
+        }
+        else if (!string.IsNullOrEmpty(Detail))
+        {
+            // The main text large and bold, the detail lines under it in the button's own (smaller) font, the block centred.
+            using var headFont = new Font(Font.FontFamily, Font.Size * 1.7f, FontStyle.Bold);
+            var flags = TextFormatFlags.NoPadding | TextFormatFlags.HorizontalCenter | TextFormatFlags.Top;
+            int headHeight = TextRenderer.MeasureText(g, Text, headFont, Size.Empty, flags).Height;
+            int detailHeight = TextRenderer.MeasureText(g, Detail, Font, new Size(label.Width, 0), flags).Height;
+            int gap = (int)Math.Round(2 * DeviceDpi / 96f);
+            int y = label.Top + (label.Height - headHeight - gap - detailHeight) / 2;
+            TextRenderer.DrawText(g, Text, headFont, new Rectangle(label.Left, y, label.Width, headHeight), textColor, flags);
+            TextRenderer.DrawText(g, Detail, Font, new Rectangle(label.Left, y + headHeight + gap, label.Width, detailHeight),
+                Enabled ? Color.FromArgb(190, 208, 222) : MonitorColors.Dim, flags);
         }
         else
             TextRenderer.DrawText(g, Text, Font, label, textColor,

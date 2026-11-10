@@ -34,12 +34,12 @@ Pluto from the PC and from a Raspberry Pi at the same time.
   changes do not reset the playing colour; sustained signal loss returns to violet.
   The current stage is also labelled above the spectrum.
 
-Local scanning and decoding share one stick. While watching a station the sweep
+Local scanning and decoding share one stick. While watching a station the scan
 is paused and dimmed; click it or press RESCAN to scan again. Bands wider than
 10 MHz zoom to a 3 MHz window on the first click. Use Bands again to reset it.
 
-Band presets: QO-100 (9750 MHz LNB by default), 10 m (28-30 MHz), 6 m (50-52 MHz), 4 m,
-2 m (144-147 MHz), 70 cm, 23 cm A/B, 13 cm (2330-2360 MHz), and 6 cm with a 5200 MHz
+Band presets: QO-100 (9750 MHz LNB by default), 10 m (28-30 MHz), 6 m (50-52 MHz), 4 m (70-72 MHz),
+2 m (143-147 MHz), 70 cm (430-440 MHz), 23 cm A/B, 13 cm (2300-2450 MHz), and 6 cm with a 5200 MHz
 converter preset. A band the chosen receiver cannot tune is greyed out in the band list:
 an ADALM-Pluto tunes from 47 MHz, so 10 m needs the RTL-SDR stick; the stick tunes up to
 about 1.7 GHz, so 13 cm and 6 cm direct (no converter) need the Pluto. These are tuning presets; an antenna,

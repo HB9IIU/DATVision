@@ -14,7 +14,8 @@ public sealed class MonitorWindow : Form
     private readonly LocalSweep _sweep;
     private readonly SpectrumFeed _batc = new();
     private readonly AudioSession _audio = new();
-    private readonly MonitorSpectrum _spectrum = new() { Dock = DockStyle.Fill };
+    private readonly MonitorSpectrum _spectrum = new() { Dock = DockStyle.Top, Height = 132 };
+    private readonly Panel _bottom = new() { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(3, 3, 3, 3) };
     private readonly Panel _video = new() { Dock = DockStyle.Fill, BackColor = Color.Black };
     private readonly Label _placeholder = new() { Dock = DockStyle.Fill, ForeColor = MonitorColors.Text, BackColor = Color.Black,
         TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI", 13, FontStyle.Bold), Text = "DATVision\n\nStarting…" };
@@ -34,10 +35,13 @@ public sealed class MonitorWindow : Form
     private Settings _saved = new();
     private TuneRequest _current;
     private ReceptionReport _report;
-    private bool _busy, _closing, _closed, _scanning, _recording, _batcOnline, _batcStarted;
+    private bool _busy, _closing, _closed, _scanning, _rescanning, _recording, _batcOnline, _batcStarted;   // _rescanning: a scan is being started (the receiver is still stopping)
     private DateTime _lastReport, _lastFrame;
     private readonly SignalLossPolicy _signalLoss = new();
     private bool _hadReception, _signalLost;
+    private long _idleSince;   // since when nothing has been decoded (0 = something is, or a rule says not to count)
+    private bool _userStopped;   // STOP was pressed: do not start by itself
+    private const int IdleBeaconSeconds = 60;
     private bool ReceivingNow => _report is { Locked: true } && DateTime.UtcNow - _lastReport < TimeSpan.FromSeconds(3)
         && _receiver.LastTransportTick != 0 && Environment.TickCount64 - _receiver.LastTransportTick < 1500;
     private int _losses;
@@ -62,13 +66,15 @@ public sealed class MonitorWindow : Form
         ClientSize = new Size(1024, 600); FormBorderStyle = FormBorderStyle.FixedSingle; MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen; TopMost = _saved.TopMost;
         var layout = _layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(7) };
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 132));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // the bottom row: strip (pan / zoom bands only) and spectrum
         _body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = new Padding(0, 0, 0, 6) };
         _body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 15)); _body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 71)); _body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 14));
         _sidebar = BuildInformation(); _controls = BuildControls();
         _video.Controls.Add(_placeholder);
         _body.Controls.Add(_sidebar, 0, 0); _body.Controls.Add(_video, 1, 0); _body.Controls.Add(_controls, 2, 0);
-        layout.Controls.Add(_body, 0, 0); layout.Controls.Add(_spectrum, 0, 1); Controls.Add(layout);
+        _bottom.Controls.Add(_spectrum);   // the bottom row sizes itself to the spectrum (a fixed row height went wrong at high Windows scaling)
+        _spectrum.NavigationClicked += async key => await NavigateAsync(key);
+        layout.Controls.Add(_body, 0, 0); layout.Controls.Add(_bottom, 0, 1); Controls.Add(layout);
         _spectrum.Band = EffectiveBand();
         _beacon.Enabled = _band.BeaconMhz > 0;
         _station.ForeColor = _esn0.ForeColor = MonitorColors.Text;
@@ -78,14 +84,18 @@ public sealed class MonitorWindow : Form
         _spectrum.FrequencyClicked += async mhz =>
         {
             if (_busy || _closing) return;
-            if (_saved.Source == "Local" && !_scanning) { await StartScanningAsync(); return; }
-            if (_saved.Source == "BATC" && (!_batcOnline || DateTime.UtcNow - _lastFrame > TimeSpan.FromSeconds(5))) { ShowMessage("Waiting for fresh BATC data"); return; }
-            if (_band.EndMhz - _band.StartMhz > 10)
+            if (_band.Navigable && _saved.Source == "Local")
             {
-                double center = Math.Clamp(mhz, _band.StartMhz + 1.5, _band.EndMhz - 1.5);
-                _band = _band with { StartMhz = center - 1.5, EndMhz = center + 1.5 };
-                _spectrum.Band = EffectiveBand(); await StartScanningAsync(); return;
+                // Pan / zoom bands: a touch recentres the view on that spot and rescans, at the same width (from the whole
+                // band the first touch zooms to FirstZoomMhz). A touch on the middle of the view (where a recentred signal
+                // now sits) tunes the carrier there, or rescans if a station is being watched.
+                double width = _band.EndMhz - _band.StartMhz, fullWidth = FullBand().EndMhz - FullBand().StartMhz, centre = (_band.StartMhz + _band.EndMhz) / 2;
+                if (width >= fullWidth - 0.01) { await ShowViewAsync(mhz, Math.Max(MinViewMhz, Math.Min(FirstZoomMhz, fullWidth / 3))); return; }   // 15 MHz on a wide band, a third of the band on a narrower one
+                if (Math.Abs(mhz - centre) > width * 0.05) { await ShowViewAsync(mhz, width); return; }
+                if (!_scanning) { await StartScanningAsync(); return; }
             }
+            else if (_saved.Source == "Local" && !_scanning) { await StartScanningAsync(); return; }
+            if (_saved.Source == "BATC" && (!_batcOnline || DateTime.UtcNow - _lastFrame > TimeSpan.FromSeconds(5))) { ShowMessage("Waiting for fresh BATC data"); return; }
             var signal = MonitorSignalFinder.Find(_spectrum.Frame, mhz, _band.BeaconMhz);
             if (signal is not { } found) { ShowMessage($"No carrier near {mhz:0.000} MHz"); return; }
             await TuneAsync(found.CenterMhz, found.SymbolRate);
@@ -175,6 +185,8 @@ public sealed class MonitorWindow : Form
         _timer.Tick += async (_, _) =>
         {
             UpdateRecordButton();
+            bool sweeping = (_scanning || _rescanning) && !_spectrum.Paused && !(_saved.Source == "BATC" && _band.Key == "qo100");
+            if (sweeping || _spectrum.Sweeping) { _spectrum.Sweeping = sweeping; _spectrum.Invalidate(); }   // redrawn every tick while sweeping: the blink
             if (_recording && !_busy && _receiver.PlayerProcess is { HasExited: true }) await EndReplayAsync();
             if (!_busy && Enabled) EmbedVideo();
             if (_current != null && !_busy && !_signalLost && ReceivingNow && _embedded != IntPtr.Zero && !_placeholder.Visible
@@ -185,6 +197,21 @@ public sealed class MonitorWindow : Form
             }
             try { _audio.ProcessId = _receiver.PlayerProcess is { HasExited: false } process ? process.Id : 0; } catch (InvalidOperationException) { _audio.ProcessId = 0; }
             _audio.Update(_saved.Volume, _saved.Muted);
+            // On QO-100: nothing decoded for a minute -> back to the beacon by itself (not during a replay or recording, with a dialog
+            // open, after STOP, or when the beacon is already being tried: retuning it every minute would only disturb the lock).
+            if (_current != null || _scanning || _recording) _userStopped = false;
+            bool beaconNow = _current != null && _band.BeaconMhz > 0 && Math.Abs(_current.RfMhz - _band.BeaconMhz) < 0.01;
+            bool idle = _band.Key == "qo100" && !_recording && !_receiver.IsRecording && !ReceivingNow && !_userStopped && !beaconNow && OwnedForms.Length == 0;
+            long tickNow = Environment.TickCount64;
+            if (!idle) _idleSince = 0;
+            else if (_idleSince == 0) _idleSince = tickNow;
+            else if (!_busy && !_closing && tickNow - _idleSince >= IdleBeaconSeconds * 1000L)
+            {
+                _idleSince = 0;
+                await TuneBeaconAsync();
+                ShowMessage("Nothing decoded for a minute · back to the beacon");
+                return;
+            }
             if (!_recording && _current != null && !_busy && !_closing)
             {
                 bool receiving = ReceivingNow;
@@ -271,6 +298,30 @@ public sealed class MonitorWindow : Form
         _tips.SetToolTip(_playButton, "Play a recording from the Record folder.");
         return panel;
     }
+    // ---- Pan and zoom on the bands that have them (ReceiveBand.Navigable): the view is a window inside the full band.
+    private const double FirstZoomMhz = 15, MinViewMhz = 3;
+    private ReceiveBand FullBand() => ReceiveBand.Presets.First(preset => preset.Key == _band.Key);
+    private async Task ShowViewAsync(double centre, double width)
+    {
+        var full = FullBand(); double fullWidth = full.EndMhz - full.StartMhz;
+        width = Math.Clamp(width, MinViewMhz, fullWidth);
+        centre = Math.Clamp(centre, full.StartMhz + width / 2, full.EndMhz - width / 2);
+        _band = full with { StartMhz = centre - width / 2, EndMhz = centre + width / 2 };
+        _spectrum.Band = EffectiveBand(); await StartScanningAsync();
+    }
+    private async Task NavigateAsync(string key)
+    {
+        if (_busy || _closing || !_band.Navigable) return;
+        double width = _band.EndMhz - _band.StartMhz, centre = (_band.StartMhz + _band.EndMhz) / 2, fullWidth = FullBand().EndMhz - FullBand().StartMhz;
+        switch (key)
+        {
+            case "left": await ShowViewAsync(centre - width / 2, width); break;    // half a view to the left
+            case "right": await ShowViewAsync(centre + width / 2, width); break;
+            case "in": await ShowViewAsync(centre, width / 3); break;               // three times narrower around the middle
+            case "out": await ShowViewAsync(centre, width * 3); break;
+            case "full": await ShowViewAsync(centre, fullWidth); break;
+        }
+    }
     private ReceiveBand EffectiveBand() => _band.Key == "qo100" ? _band with { LoMhz = _saved.EffectiveLoMhz.Value } : _band;
     private async Task TuneBeaconAsync()
     {
@@ -287,6 +338,9 @@ public sealed class MonitorWindow : Form
         if (_busy || _closing) return; _busy = true;
         try
         {
+            // Show at once that the click was taken: stopping the picture and the receiver takes a second or two,
+            // and clicks during that time are ignored (so it used to look as if nothing happened).
+            _rescanning = true; _spectrum.Frame = null; _spectrum.Tuned = null; _spectrum.Paused = false; _spectrum.Sweeping = true; _spectrum.Message = "Rescanning…"; State("SCANNING", MonitorColors.Amber); _spectrum.Refresh();
             await EndReceptionAsync(); _scanning = true; _spectrum.Band = EffectiveBand(); _spectrum.SourceLabel = _saved.Source == "BATC" ? "BATC" : "LOCAL";
             EnsureBatc();
             _spectrum.Frame = null; _spectrum.Tuned = null; _spectrum.Paused = false; _spectrum.Message = "Scanning · click a signal to watch";
@@ -296,7 +350,7 @@ public sealed class MonitorWindow : Form
             await _sweep.StartAsync(EffectiveBand(), _saved.Gain);
         }
         catch (Exception ex) { _scanning = false; State("SDR ERROR", MonitorColors.Red); Placeholder(ex.Message); _stop.Text = "START"; }
-        finally { _busy = false; }
+        finally { _busy = false; _rescanning = false; }
     }
     private async Task TuneAsync(double mhz, int symbols)
     {
@@ -315,7 +369,7 @@ public sealed class MonitorWindow : Form
             _frequency.Text = $"{mhz:0.000} MHz"; _sr.Text = $"{symbols} kS/s"; _mode.Text = "Searching…";
             State("TUNING", MonitorColors.Amber); Placeholder("Waiting for the station\n\nand its first video keyframe…");
             _stop.Text = _saved.Source == "BATC" ? "STOP" : "RESCAN"; _spectrum.Tuned = request;
-            _spectrum.Paused = _saved.Source != "BATC"; _spectrum.Message = _spectrum.Paused ? "Local sweep paused · click to rescan" : ""; _spectrum.Invalidate();
+            _spectrum.Paused = _saved.Source != "BATC"; _spectrum.Message = _spectrum.Paused ? "Local scan paused · click to rescan" : ""; _spectrum.Invalidate();
             await _receiver.TuneAsync(request, 100); _eye.Running = true; _eye.Invalidate();
         }
         catch (Exception ex) { State("SDR ERROR", MonitorColors.Red); Placeholder(ex.Message); _current = null; _stop.Text = "START"; }
@@ -325,9 +379,8 @@ public sealed class MonitorWindow : Form
     private void SetFullVideo(bool full)
     {
         _fullVideo = full;
-        _sidebar.Visible = _controls.Visible = _spectrum.Visible = !full;
+        _sidebar.Visible = _controls.Visible = _bottom.Visible = !full;
         _body.ColumnStyles[0].Width = full ? 0 : 15; _body.ColumnStyles[1].Width = full ? 100 : 71; _body.ColumnStyles[2].Width = full ? 0 : 14;
-        _layout.RowStyles[1].Height = full ? 0 : 132;
         FitVideo();
     }
     private async Task EndReceptionAsync()
@@ -343,7 +396,7 @@ public sealed class MonitorWindow : Form
         if (_busy || _closing) return; _busy = true;
         try
         {
-            await EndReceptionAsync(); State("STOPPED", MonitorColors.Dim); _stop.Text = "START";
+            await EndReceptionAsync(); _userStopped = true; State("STOPPED", MonitorColors.Dim); _stop.Text = "START";
             _spectrum.Tuned = null; _spectrum.Message = "Click the spectrum to scan"; _spectrum.Invalidate();
             Placeholder("Stopped\n\nClick the spectrum to scan again");
         }
@@ -431,8 +484,12 @@ public sealed class MonitorWindow : Form
         foreach (var band in ReceiveBand.Presets)
         {
             bool supported = band.SupportedBy(plutoSelected);   // the Pluto cannot tune the HF bands, the stick cannot tune 13 cm or 6 cm direct
-            var tile = Button($"{band.Name}\n{band.StartMhz:0.0}–{band.EndMhz:0.0} MHz" + (supported ? "" : plutoSelected ? "\nneeds the RTL-SDR" : "\nneeds the Pluto"));
-            tile.Enabled = supported; tile.Font = new Font("Segoe UI", 11, FontStyle.Bold);
+            // The name big, the frequencies smaller below it, without a useless ".0" (28 MHz, not 28.0; but 70.5 stays).
+            var tile = (MonitorButton)Button(band.Name);
+            string note = !supported ? (plutoSelected ? "needs the RTL-SDR" : "needs the Pluto")
+                : band.Key == "6cm-direct" ? "Pluto, no converter" : band.Key == "6cm" ? $"RTL-SDR, LO {band.LoMhz:0} MHz" : null;
+            tile.Detail = $"{band.StartMhz:0.###}–{band.EndMhz:0.###} MHz" + (note == null ? "" : "\n" + note);
+            tile.Enabled = supported; tile.Font = new Font("Segoe UI", 10);
             tile.Click += (_, _) => { selected = band; dialog.DialogResult = DialogResult.OK; dialog.Close(); };
             tiles.Controls.Add(tile);
         }
@@ -440,6 +497,8 @@ public sealed class MonitorWindow : Form
         if (ShowMonitorDialog(dialog) == DialogResult.OK && selected != null)
         {
             _band = selected; _saved.Band = selected.Key;
+            // At once: the new band's axis, no old picture, and the scan indicator (the receiver still has to stop, which takes a moment).
+            _spectrum.Band = EffectiveBand(); _spectrum.Frame = null; _spectrum.Tuned = null; _spectrum.Message = ""; _spectrum.Invalidate();
             if (_band.Key != "qo100") _saved.Source = "Local";
             _beacon.Enabled = _band.BeaconMhz > 0; SaveSettings(); await StartScanningAsync();
         }
@@ -488,7 +547,7 @@ public sealed class MonitorWindow : Form
         online.Click += (_, _) => { batc = true; Pick(online, local); };
         Pick(batc ? online : local, batc ? local : online);
         var spectrumCard = Card("Spectrum", [46, 30],
-            "Local scan: your own SDR sweeps the band, no internet needed. BATC: the BATC web spectrum of the whole transponder.", out _);
+            "Local scan: your own SDR scans the band, no internet needed. BATC: the BATC web spectrum of the whole transponder.", out _);
         spectrumCard.Controls.Add(Row(local, online), 0, 1);
         spectrumCard.Controls.Add(_band.Key != "qo100" ? Text("BATC covers QO-100 only.", 10, color: MonitorColors.Dim)
             : _batcOnline ? Text("● Internet OK: BATC spectrum available.", 10, color: accentBorder)

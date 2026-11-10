@@ -8,12 +8,16 @@ public sealed record ReceiveBand(string Key, string Name, double StartMhz, doubl
     public static readonly ReceiveBand[] Presets = [
         new("qo100", "QO-100", 10490.5, 10499.5, 9750, 10491.5),
         new("10m", "10 m", 28, 30, 0), new("6m", "6 m", 50, 52, 0),
-        new("4m", "4 m", 70.5, 71.5, 0), new("2m", "2 m", 144, 147, 0),
-        new("70cm", "70 cm", 435, 439, 0), new("23a", "23 cm A", 1243, 1275, 0),
-        new("23b", "23 cm B", 1272, 1291, 0), new("13cm", "13 cm", 2330, 2360, 0),
-        new("6cm-direct", "6 cm direct", 5690, 5720, 0),
-        new("6cm", "6 cm / 5200 LO", 5690, 5720, 5200)
+        new("4m", "4 m", 70, 72, 0), new("2m", "2 m", 143, 147, 0),
+        new("70cm", "70 cm", 430, 440, 0), new("23a", "23 cm A", 1243, 1275, 0),
+        new("23b", "23 cm B", 1272, 1291, 0), new("13cm", "13 cm", 2300, 2450, 0),
+        new("6cm-direct", "6 cm", 5690, 5720, 0),
+        new("6cm", "6 cm + converter", 5690, 5720, 5200)
     ];
+
+    // The bands with the pan / zoom controls: those whose full range is wider than 10 MHz (as far as the old fixed zoom went).
+    // Judged by the preset, not by the zoomed view, so the buttons stay when the view is narrow.
+    public bool Navigable => Presets.FirstOrDefault(preset => preset.Key == Key) is { } full && full.EndMhz - full.StartMhz > 10;
 
     // The receivers' tuning range (see LocalReceiver.Validate), measured after any converter: the stick from 24 to 1766 MHz,
     // the Pluto from 47 MHz to 6 GHz. So the HF bands need the stick, 13 cm and 6 cm direct need the Pluto.
