@@ -2,10 +2,11 @@
 import struct
 import time
 from PyQt5.QtCore import Qt, QUrl, QTimer, pyqtSignal, QPoint, QPointF, QRectF
-from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen
+from PyQt5.QtGui import QColor, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen
 from PyQt5.QtNetwork import QNetworkRequest
 from PyQt5.QtWebSockets import QWebSocket
 from PyQt5.QtWidgets import QWidget
+import bands
 from signal_finder import START_MHZ, END_MHZ, BEACON_MHZ, MIN_RISE, detect_signals, find_signal, nearest_signal
 import sweeper
 from ui_scale import px
@@ -19,7 +20,7 @@ SLOT_COLORS = {"searching": ((58, 150, 255), "#8cc4ff"), "locked": ((37, 194, 11
 class Spectrum(QWidget):
     clicked = pyqtSignal(float)
     rescan = pyqtSignal()
-    zoom_out = pyqtSignal()
+    navigate = pyqtSignal(str)   # "in", "out", "full": the zoom buttons on the wide bands
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -33,6 +34,11 @@ class Spectrum(QWidget):
         self.view_top = 0       # local: frame level drawn near the top (follows the strongest signal)
         self.start_mhz, self.end_mhz, self.beacon_mhz, self.band_name = START_MHZ, END_MHZ, BEACON_MHZ, "QO-100"
         self.zoomed = False
+        self.pan_zoom = False       # a band wider than bands.ZOOM_ABOVE_MHZ: touch recentres, buttons - + FULL
+        self.full_name = "QO-100"
+        self.scan_check = lambda: False   # set by the player: is the local scan running?
+        self.pending_until = 0      # a rescan was asked for and is about to start: show it at once
+        self.beat = 0
         self.selected = None
         self.slot_state = "searching"
         self.message = ""
@@ -49,12 +55,16 @@ class Spectrum(QWidget):
         self.clock = QTimer(self)
         self.clock.timeout.connect(self.update)
         self.clock.start(1000)
+        self.animation = QTimer(self)   # the moving bar of the first scan, the blink of "Continuous Scanning"
+        self.animation.timeout.connect(self.animate)
+        self.animation.start(60)
         self.clear_message = QTimer(self)
         self.clear_message.setSingleShot(True)
         self.clear_message.timeout.connect(lambda: self.show_message(""))
 
     def set_band(self, band):
-        self.beacon_mhz, self.band_name = band.beacon_mhz, band.name
+        self.beacon_mhz, self.band_name, self.full_name = band.beacon_mhz, band.name, band.name
+        self.pan_zoom = band.end_mhz - band.start_mhz > bands.ZOOM_ABOVE_MHZ
         self.set_view(band.start_mhz, band.end_mhz, False)
 
     def set_view(self, start_mhz, end_mhz, zoomed):
@@ -62,8 +72,47 @@ class Spectrum(QWidget):
         self.frame, self.signals, self.view_top, self.selected = (), [], 0, None
         self.update()
 
-    def zoom_out_area(self):
-        return QRectF(px(6), px(4), px(150), px(36))
+    def nav_font(self):
+        font = self.font()
+        font.setBold(True)
+        font.setPointSizeF(font.pointSizeF() * 1.2)
+        return font
+
+    def nav_buttons(self):
+        """[(key, text, rectangle)] of the zoom buttons in the top-left corner, on the wide bands."""
+        if not self.pan_zoom:
+            return []
+        full = "FULL %s Band" % self.full_name
+        metrics = QFontMetrics(self.nav_font())
+        out, x = [], px(6)
+        for key, text, width in (("out", "–", px(46)), ("in", "+", px(46)),
+                                 ("full", full, metrics.horizontalAdvance(full) + px(26))):
+            out.append((key, text, QRectF(x, px(4), width, px(36))))
+            x += width + px(6)
+        return out
+
+    @property
+    def scanning(self):
+        """The local scan is running, or is about to: "Continuous Scanning" shows, with a moving bar until the first picture."""
+        if self.source != "local":
+            return False
+        if self.frozen:
+            self.pending_until = 0
+            return False
+        return time.monotonic() < self.pending_until or bool(self.scan_check())
+
+    def begin_rescan(self):
+        """A rescan was asked for: erase the old picture and show the scanning at once (stopping the receiver takes a moment)."""
+        if self.source == "local":
+            self.frame, self.signals, self.view_top, self.selected, self.frozen = (), [], 0, None, False
+            self.pending_until = time.monotonic() + 6
+            self.repaint()
+
+    def animate(self):
+        if self.scanning:
+            self.beat += 1
+            if not self.frame or self.beat % 4 == 0:   # smooth without a picture, a blink's pace with one
+                self.update()
 
     def signal_at(self, mhz):
         # Finger tolerance in pixels, so wide bands stay as easy to tap as QO-100.
@@ -165,11 +214,12 @@ class Spectrum(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.width():
-            if self.zoomed and self.zoom_out_area().adjusted(-6, -4, 10, 10).contains(event.pos()):
-                self.zoom_out.emit()
+            pressed = next((key for key, _, rect in self.nav_buttons() if rect.adjusted(-6, -4, 6, 8).contains(event.pos())), None)
+            if pressed:
+                self.navigate.emit(pressed)
             elif self.source == "local" and self.frozen and self.rescan_area().adjusted(-10, -6, 6, 10).contains(event.pos()):
                 self.rescan.emit()
-            elif self.fresh:
+            elif self.fresh or (self.source == "local" and self.pan_zoom):   # a wide band can be zoomed before the first scan is done
                 self.clicked.emit(self.start_mhz + event.x() / self.width() * (self.end_mhz - self.start_mhz))
             else:
                 self.show_message("Waiting for the first scan…" if self.source == "local" else "Waiting for fresh BATC spectrum data…")
@@ -234,10 +284,34 @@ class Spectrum(QWidget):
             size = painter.fontMetrics().horizontalAdvance(text)
             left = max(0, min(width - size, x(frequency) - size / 2))
             painter.drawText(QPointF(left, self.height() - px(5)), text)
-        for area, text, shown in ((self.zoom_out_area(), "✕  ZOOM OUT", self.zoomed),
-                                  (self.rescan_area(), "↻  TAP TO RESCAN", self.source == "local" and self.frozen)):
-            if not shown:
-                continue
+        scanning = self.scanning
+        if scanning:
+            # Red and blinking at the top centre: the scan repeats by itself until a signal is tapped. Until the first picture of
+            # the band is there (the scanner reports a whole pass at a time, which takes a while on a wide band) a bar moves
+            # across the plot, so that it is clear that something is going on.
+            lit = int(time.monotonic() * 1000) % 1000 < 600
+            title_font = self.font()
+            title_font.setPointSizeF(title_font.pointSizeF() * 1.15)
+            painter.setFont(title_font)
+            painter.setPen(QColor(255, 107, 107, 235 if lit else 90))
+            title = QRectF(0, px(2), width, QFontMetrics(title_font).height())
+            painter.drawText(title, Qt.AlignHCenter | Qt.AlignTop, "Continuous Scanning")
+            painter.setFont(self.font())
+            if not self.frame:
+                bar = (time.monotonic() % 2.5) / 2.5 * width
+                trail = QLinearGradient(bar - px(80), 0, bar, 0)
+                trail.setColorAt(0, QColor(255, 189, 69, 0))
+                trail.setColorAt(1, QColor(255, 189, 69, 110))
+                painter.fillRect(QRectF(bar - px(80), top, px(80), plot), trail)
+                painter.setPen(QPen(QColor(255, 189, 69, 230), 2))
+                painter.drawLine(QPointF(bar, top), QPointF(bar, bottom))
+                painter.setPen(QColor("#91a7ba"))
+                painter.drawText(QRectF(0, title.bottom() + px(2), width, QFontMetrics(self.font()).height() + px(2)),
+                                 Qt.AlignHCenter | Qt.AlignTop, "first scan in progress…")
+        areas = [(rect, text) for _, text, rect in self.nav_buttons()]
+        if self.source == "local" and self.frozen:
+            areas.append((self.rescan_area(), "↻  TAP TO RESCAN"))
+        for area, text in areas:
             painter.setPen(QPen(QColor(140, 196, 255, 170), 1))
             painter.setBrush(QColor(12, 22, 32, 95))   # see-through: the signal stays visible
             painter.drawRoundedRect(area, 6, 6)
@@ -253,8 +327,8 @@ class Spectrum(QWidget):
         source += " · " + self.receiver   # which radio the data comes from
         painter.setPen(QColor("#91a7ba"))
         painter.drawText(width - painter.fontMetrics().horizontalAdvance(source) - px(6), painter.fontMetrics().ascent() + px(4), source)
-        text = self.message
-        if not self.fresh and not text:
+        text = "" if scanning else self.message   # "Continuous Scanning" takes the place of the message
+        if not self.fresh and not text and not scanning:
             if self.source == "local":
                 text = "Scanning the band…"
             else:
@@ -274,4 +348,5 @@ class Spectrum(QWidget):
             pass   # already stopped: closing can run twice
         self.retry.stop()
         self.clock.stop()
+        self.animation.stop()
         self.socket.abort()

@@ -47,6 +47,7 @@ NO_PLUTO = "Pluto not found\n\nCheck its power supply and its USB or network cab
 STICK_BUSY = "RTL-SDR stick is busy\n\nUnplug it and plug it back in.\nIf that does not help, restart the Pi."
 SIGNAL_LOST_NOTICE_S = 3   # replace the frozen picture with a clear message
 SIGNAL_LOST_GIVE_UP_S = 30  # LOCAL: stop waiting for the station and scan the band again
+IDLE_BEACON_S = 60          # QO-100: nothing decoded for this long: back to the beacon by itself
 CREDITS = (("DVB-S/S2 decoder", "based on OnAir by Kristijonas Adomaitis (adswill)"),
            ("LDPC decoder", "optimizations by Evariste Courjaud (F5OEO)"),
            ("DVB-S/S2 contributions", "Arclamp"),
@@ -261,6 +262,7 @@ class Player(QMainWindow):
         self.tuned_at = 0
         self.locked_at = None
         self.lost_since = None   # when a station that was locked went silent
+        self.idle_since = None   # QO-100: since when nothing has been decoded
         self.calibration = None
         self.zoom = None   # (start, end) MHz while zoomed into a wide band
         self.full_video = False
@@ -361,7 +363,8 @@ class Player(QMainWindow):
         self.placeholder.installEventFilter(self)
         self.spectrum.clicked.connect(self.select_signal)
         self.spectrum.rescan.connect(self.rescan)
-        self.spectrum.zoom_out.connect(self.zoom_out)
+        self.spectrum.navigate.connect(self.navigate)
+        self.spectrum.scan_check = lambda: self.sweeper.running
         self.controls.mute.connect(self.toggle_mute)
         self.controls.louder.connect(lambda: self.change_volume(10))
         self.controls.quieter.connect(lambda: self.change_volume(-10))
@@ -519,6 +522,7 @@ class Player(QMainWindow):
             return
         start, end = self.zoom or (self.band.start_mhz, self.band.end_mhz)
         print("SCAN: %s %.3f-%.3f MHz" % (self.band.name, start, end), flush=True)
+        self.spectrum.begin_rescan()
         self.info.reset(None)
         self.info.show_state("SCANNING", "#8cc4ff")
         self.show_placeholder("Scanning the band\n\nTap a signal to watch it")
@@ -563,9 +567,19 @@ class Player(QMainWindow):
 
     def select_signal(self, mhz):
         self.cancel_calibration()
-        if self.band.end_mhz - self.band.start_mhz > bands.ZOOM_ABOVE_MHZ and not self.zoom:
-            self.zoom_to(mhz)   # wide band: the first tap zooms, the second tunes
-            return
+        full = self.band.end_mhz - self.band.start_mhz
+        if full > bands.ZOOM_ABOVE_MHZ:
+            # Wide band: a tap recentres the view on that spot and scans again, at the same width (from the whole band the
+            # first tap zooms to FIRST_ZOOM_MHZ, or a third of a narrower band). A tap on the middle of the view, where a
+            # recentred signal now sits, tunes it.
+            start, end = self.zoom or (self.band.start_mhz, self.band.end_mhz)
+            width = end - start
+            if width >= full - 0.01:
+                self.show_view(mhz, max(bands.MIN_VIEW_MHZ, min(bands.FIRST_ZOOM_MHZ, full / 3)))
+                return
+            if abs(mhz - (start + end) / 2) > width * 0.05:
+                self.show_view(mhz, width)
+                return
         signal = self.spectrum.signal_at(mhz)
         if signal is None:
             self.spectrum.show_message("No signal at %.3f MHz" % mhz)
@@ -733,6 +747,7 @@ class Player(QMainWindow):
             if self.video.ended:
                 self.end_replay()
             return
+        self.check_idle_beacon()
         if self.current and self.device == "pluto" and self.pluto_wifi:
             self.spectrum.show_message(PLUTO_WIFI)   # renewed every tick: it stays while tuned
         if self.waiting_for_stick:
@@ -778,6 +793,26 @@ class Player(QMainWindow):
             self.mark_lock(False)   # turns the slot red after ten seconds without a lock
         self.check_signal()
 
+    def check_idle_beacon(self):
+        """On QO-100: nothing decoded for a minute -> back to the beacon by itself. Not during a replay or recording, while a page
+        (settings, bands, about) or the calibration is open, while waiting for the stick, or when the beacon is already the tuned
+        station (retuning it every minute would only disturb the lock)."""
+        decoding = self.current is not None and self.locked_at is not None and self.lost_since is None
+        beacon_now = self.current is not None and abs(self.current.center_mhz - BEACON_MHZ) < 0.01
+        busy = (self.band.key != "qo100" or self.replaying or self.receiver.recording or self.calibration
+                or self.waiting_for_stick or self.pages.currentIndex() != 0)
+        if decoding or beacon_now or busy:
+            self.idle_since = None
+            return
+        now = time.monotonic()
+        if self.idle_since is None:
+            self.idle_since = now
+        elif now - self.idle_since >= IDLE_BEACON_S:
+            self.idle_since = None
+            print("IDLE: nothing decoded for %d s, back to the beacon" % IDLE_BEACON_S, flush=True)
+            self.tune(Signal(BEACON_MHZ, 1500))
+            self.spectrum.show_message("Nothing decoded for a minute · back to the beacon")
+
     def check_signal(self):
         # A station that goes silent: say so after 3 s instead of showing a frozen picture,
         # keep listening, and in LOCAL mode scan again after 30 s. The same 30 s apply to a
@@ -798,6 +833,7 @@ class Player(QMainWindow):
     def rescan(self):
         print("RESCAN", flush=True)
         self.cancel_calibration()
+        self.spectrum.begin_rescan()   # erase the old picture and show the scanning at once
         self.stop()   # in LOCAL mode, stopping returns to scanning
 
     def stop(self, scan=True):
@@ -986,18 +1022,29 @@ class Player(QMainWindow):
             elif self.sweeper.running:
                 self.start_scan()
 
-    def zoom_to(self, mhz):
-        start = max(self.band.start_mhz, min(mhz - bands.ZOOM_MHZ / 2, self.band.end_mhz - bands.ZOOM_MHZ))
-        self.zoom = (start, start + bands.ZOOM_MHZ)
-        print("ZOOM: %.3f-%.3f MHz" % self.zoom, flush=True)
-        self.spectrum.set_view(*self.zoom, True)
-        self.stop() if self.current else self.start_scan()   # stopping returns to scanning, now zoomed
+    def show_view(self, centre, width):
+        """The view (the whole band or a zoomed window of it) centred on `centre`, `width` MHz wide, and scan it."""
+        full = self.band.end_mhz - self.band.start_mhz
+        width = max(bands.MIN_VIEW_MHZ, min(width, full))
+        start = max(self.band.start_mhz, min(centre - width / 2, self.band.end_mhz - width))
+        self.zoom = None if width >= full - 0.01 else (start, start + width)
+        print("VIEW: %.3f-%.3f MHz" % (start, start + width), flush=True)
+        self.spectrum.set_view(start, start + width, self.zoom is not None)
+        self.spectrum.begin_rescan()
+        self.stop() if self.current else self.start_scan()   # stopping returns to scanning, now with the new view
 
-    def zoom_out(self):
-        print("ZOOM: out", flush=True)
-        self.zoom = None
-        self.spectrum.set_view(self.band.start_mhz, self.band.end_mhz, False)
-        self.stop() if self.current else self.start_scan()
+    def navigate(self, key):
+        """The zoom buttons: - and + (a factor of three around the middle) and FULL (the whole band)."""
+        self.cancel_calibration()
+        full = self.band.end_mhz - self.band.start_mhz
+        start, end = self.zoom or (self.band.start_mhz, self.band.end_mhz)
+        width, centre = end - start, (start + end) / 2
+        if key == "in":
+            self.show_view(centre, width / 3)
+        elif key == "out":
+            self.show_view(centre, width * 3)
+        elif key == "full":
+            self.show_view(centre, full)
 
     def step_gain(self, step):
         index = min(range(len(GAINS)), key=lambda i: abs(GAINS[i] - self.gain_db))
@@ -1111,6 +1158,7 @@ class Player(QMainWindow):
         self.controls.show_gain(self.gain_db)
         self.spectrum.set_band(band)
         self.spectrum.set_source(self.effective_source())
+        self.spectrum.begin_rescan()   # the new band's scale and the scanning at once, before the receiver has stopped
         self.save_settings()
         self.start_default()
 

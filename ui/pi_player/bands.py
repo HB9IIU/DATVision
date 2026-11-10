@@ -27,6 +27,7 @@ class Band:
     converter_names: tuple = ()
     beacon_mhz: float = 0     # a known reference signal, 0 for none
     gain_db: float = 40.2     # starting RF gain; one of the tuner's steps
+    note: str = ""            # the third line of the band tile; empty = how it is received (LNB, converter, antenna)
 
     def receiver_range(self):
         """(lowest, highest) MHz the receiver itself has to tune for this band."""
@@ -43,22 +44,25 @@ BANDS = (
     Band("qo100", "QO-100", 10490.5, 10499.5, via_lnb=True, beacon_mhz=10491.5),
     Band("10m", "10 m", 28.0, 30.0, gain_db=32.8),
     Band("6m", "6 m", 50.0, 52.0, gain_db=32.8),
-    Band("4m", "4 m", 70.5, 71.5, gain_db=32.8),
-    Band("2m", "2 m", 144.0, 147.0, gain_db=32.8),
-    Band("70cm", "70 cm", 435.0, 439.0, gain_db=32.8),
+    Band("4m", "4 m", 70.0, 72.0, gain_db=32.8),
+    Band("2m", "2 m", 143.0, 147.0, gain_db=32.8),
+    Band("70cm", "70 cm", 430.0, 440.0, gain_db=32.8),
     Band("23cm-a", "23 cm A", 1243.0, 1275.0, gain_db=36.4),
     Band("23cm-b", "23 cm B", 1272.0, 1291.0, gain_db=36.4),
-    Band("13cm", "13 cm", 2330.0, 2360.0, gain_db=36.4),
+    Band("13cm", "13 cm", 2300.0, 2450.0, gain_db=36.4),   # the whole 13 cm amateur band
     # 5.7 GHz through a downconverter (ON1AVO): the stick receives RF - LO. Activity
     # centres on 5705 MHz; IF 490-520 MHz with an RX5808 (LO 5200), 690-720 MHz with
     # a DG0VE KON-DWN-5560 at its standard 5000 MHz LO (4700 and 4600 selectable).
-    Band("6cm-direct", "6 cm direct", 5690.0, 5720.0, gain_db=36.4),   # a Pluto tunes 5.7 GHz itself
-    Band("6cm", "6 cm + LO", 5690.0, 5720.0, gain_db=36.4, converter_los=(5200.0, 5000.0, 4700.0, 4600.0),
+    Band("6cm-direct", "6 cm", 5690.0, 5720.0, gain_db=36.4, note="Pluto, no converter"),   # a Pluto tunes 5.7 GHz itself
+    Band("6cm", "6 cm + converter", 5690.0, 5720.0, gain_db=36.4, converter_los=(5200.0, 5000.0, 4700.0, 4600.0),
          converter_names=("RX5808", "KON-DWN-5560", "KON-DWN-5560", "KON-DWN-5560")),
 )
 BY_KEY = {band.key: band for band in BANDS}
 
-# On bands wider than this, the first tap zooms into a window around the finger
-# and the second tap tunes.
+# Bands wider than this have the pan / zoom controls: a tap recentres the view on the finger
+# (the first tap from the whole band zooms to FIRST_ZOOM_MHZ, or a third of a narrower band),
+# a tap on the middle tunes; the buttons - + FULL zoom by a factor of three. The view is never
+# narrower than MIN_VIEW_MHZ.
 ZOOM_ABOVE_MHZ = 10
-ZOOM_MHZ = 3
+FIRST_ZOOM_MHZ = 15
+MIN_VIEW_MHZ = 3

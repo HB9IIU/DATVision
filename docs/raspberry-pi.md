@@ -52,8 +52,18 @@ BANDS, ⚙ settings and ⏻ quit. ⏻ asks QUIT? first; a second tap within
 
 **Spectrum.** Tap a signal to receive it; the tuned signal turns green. On
 QO-100 the spectrum comes from BATC (internet) or from your own stick (LOCAL);
-on all other bands it is always your own stick. On wide bands the first tap
-zooms in, the second tunes.
+on all other bands it is always your own stick. While the band is scanned a red
+**Continuous Scanning** blinks at the top; until the first picture of the band is
+there, a bar moves across the spectrum.
+
+On wide bands (more than 10 MHz: 23 cm, 13 cm, 6 cm) a tap **recentres** the view
+on that spot and scans again: the first tap from the whole band zooms to 15 MHz,
+later taps keep the width. A tap on the middle of the view tunes the signal there.
+The buttons **–** and **+** zoom out and in by a factor of three around the middle,
+**FULL … Band** shows the whole band again.
+
+On QO-100, when nothing has been decoded for a minute (and no replay, recording or
+settings page is open), the beacon is tuned by itself.
 
 **Tap the picture** to see only the video; tap again to return.
 
@@ -63,8 +73,8 @@ zooms in, the second tunes.
 | --- | --- |
 | QO-100 | via the LNB, BATC or local spectrum |
 | 10 m, 6 m, 4 m, 2 m, 70 cm, 23 cm A/B | direct from the antenna (IARU Region 1 ATV segments). An ADALM-Pluto or FISHBall tunes from 47 MHz, so 10 m needs the RTL-SDR stick. |
-| 13 cm, 6 cm direct | direct from the antenna, with an ADALM-Pluto or FISHBall (the RTL-SDR stick tunes up to about 1.7 GHz only) |
-| 6 cm + LO | via a downconverter (for the RTL-SDR stick, or a Pluto): RX5808 (LO 5200 MHz) or DG0VE KON-DWN-5560 (LO 5000, 4700 or 4600 MHz), chosen in Settings |
+| 13 cm (2300-2450 MHz), 6 cm | direct from the antenna, with an ADALM-Pluto or FISHBall (the RTL-SDR stick tunes up to about 1.7 GHz only) |
+| 6 cm + converter | via a downconverter (for the RTL-SDR stick, or a Pluto): RX5808 (LO 5200 MHz) or DG0VE KON-DWN-5560 (LO 5000, 4700 or 4600 MHz), chosen in Settings |
 
 On terrestrial and converter bands the column shows the RF gain with − and +.
 

@@ -601,9 +601,11 @@ class BandsPage(QWidget):
             lines.setSpacing(px(2))
             lines.addStretch()
             for text, role in ((band.name, "bandName"), ("%g – %g MHz" % (band.start_mhz, band.end_mhz), "bandRange"),
-                               ("via LNB" if band.via_lnb else "via converter" if band.converter_los else "direct antenna",
+                               (band.note or ("via LNB" if band.via_lnb else "via converter" if band.converter_los else "direct antenna"),
                                 "bandSource")):
                 line = label(lines, role, text)
+                if role == "bandName" and len(text) > 12:
+                    line.setStyleSheet("font-size: %dpx;" % px(int(28 * 12 / len(text))))   # a long name ("6 cm + converter") shrinks to fit the tile
                 if role == "bandSource":
                     self.source_lines[band.key] = (line, text)   # set_receiver explains a greyed-out band here
                 line.setAlignment(Qt.AlignCenter)
